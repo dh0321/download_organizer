@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   resolveDestinationFolderSegments,
   conflictCandidateFilename,
+  splitCustomDirectorySegments,
   MissingRequiredFieldError,
 } from "../src/path.js";
 import { PathTraversalError } from "../src/sanitize.js";
@@ -60,6 +61,39 @@ describe("resolveDestinationFolderSegments", () => {
       "Gener<ated",
     );
     expect(segments).toEqual(["GalaxyS27", "Generated"]);
+  });
+});
+
+describe("splitCustomDirectorySegments", () => {
+  it("splits a nested path on backslashes", () => {
+    expect(splitCustomDirectorySegments("ClientA\\ReviewBatch2")).toEqual(["ClientA", "ReviewBatch2"]);
+  });
+
+  it("splits a nested path on forward slashes too", () => {
+    expect(splitCustomDirectorySegments("ClientA/ReviewBatch2")).toEqual(["ClientA", "ReviewBatch2"]);
+  });
+
+  it("drops empty segments from doubled/leading/trailing slashes", () => {
+    expect(splitCustomDirectorySegments("\\ClientA\\\\ReviewBatch2\\")).toEqual(["ClientA", "ReviewBatch2"]);
+  });
+
+  it("rejects a '..' traversal segment anywhere in the path", () => {
+    expect(() => splitCustomDirectorySegments("ClientA\\..\\secret")).toThrow(PathTraversalError);
+    expect(() => splitCustomDirectorySegments("..\\ClientA")).toThrow(PathTraversalError);
+  });
+
+  it("folds an absolute-looking Windows path into safe relative segments instead of rejecting it", () => {
+    // ':' is stripped by sanitizeSegment, so "C:\Windows\System32" becomes a
+    // perfectly ordinary relative path under Root — never an escape (§F-2).
+    expect(splitCustomDirectorySegments("C:\\Windows\\System32")).toEqual(["C", "Windows", "System32"]);
+  });
+
+  it("folds a UNC-looking path into safe relative segments instead of rejecting it", () => {
+    expect(splitCustomDirectorySegments("\\\\nas\\share\\folder")).toEqual(["nas", "share", "folder"]);
+  });
+
+  it("sanitizes each segment (illegal characters, reserved names)", () => {
+    expect(splitCustomDirectorySegments("Client:A\\CON")).toEqual(["ClientA", "CON_"]);
   });
 });
 

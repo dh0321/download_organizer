@@ -58,68 +58,23 @@ export interface Settings {
   maxConcurrentFileOps: number;
 }
 
+/**
+ * Extension-wide state. Under the Download → Inbox → Edit → Organize flow
+ * (see the plan), there is no more "current in-flight download configuration"
+ * to hold — every Pending Asset carries its own independent NamingFields that
+ * can be edited any time before Organize (see PendingAsset below). What's left
+ * here is just the AI Session switch plus "Batch Defaults": the Project/
+ * Sequence/Save As values a newly-detected asset is pre-filled with, and that
+ * "Apply defaults to selected" can push onto already-listed assets on request.
+ */
 export interface SessionState {
   aiSessionEnabled: boolean;
-  currentProject: string;
-  currentSequence: string;
-  currentShot: string;
-  currentBucketId: string;
-  currentDescription: string;
-  selectedNamingPresetId: string;
-  customFilenameEnabled: boolean;
-  customFilename: string;
-  /** §F-1 Index Reservation checkpoint. In-memory counter is authoritative; this is
-   * only the persisted restore point used after a service worker restart. */
-  lastIndexByKey: Record<string, number>;
-}
-
-/** §F-1 — captured once at detection time and never re-read afterwards. */
-export interface SessionSnapshot {
-  root: string;
-  project: string;
-  sequence: string;
-  shot: string;
-  bucketId: string;
-  description: string;
-  namingPresetId: string;
-  customFilenameEnabled: boolean;
-  customFilename: string;
+  batchDefaultProject: string;
+  batchDefaultSequence: string;
+  batchDefaultBucketId: string;
 }
 
 export type MediaType = "image" | "video";
-
-export type DownloadJobStatus =
-  | "detected"
-  | "queued"
-  | "downloading"
-  | "downloaded"
-  | "moving"
-  | "saved"
-  | "failed"
-  | "cancelled";
-
-export interface DownloadJob {
-  id: string;
-  browserDownloadId: number;
-  originalFilename: string;
-  extension: string;
-  mediaType: MediaType;
-  source: string;
-  detectedAt: number;
-  sessionSnapshot: SessionSnapshot;
-  reservedIndex: number;
-  destinationPath?: string;
-  finalFilename?: string;
-  status: DownloadJobStatus;
-  error?: string;
-}
-
-export interface RecentActivityEntry {
-  jobId: string;
-  finalFilename: string;
-  status: DownloadJobStatus;
-  updatedAt: number;
-}
 
 export interface IntentPing {
   origin: string;
@@ -157,6 +112,66 @@ export interface NamingFields {
   namingTemplate: string;
   customFilenameEnabled: boolean;
   customFilename: string;
+  /** See SessionState.customDirectoryEnabled for the full explanation — distinct
+   * from customFolderName above (that's a Phase-2, single-segment bucket
+   * replacement; this is a multi-segment full-path override). Optional (like
+   * bucketId/customFolderName above) so existing call sites that don't use
+   * Custom Directory don't need to pass it. */
+  customDirectoryEnabled?: boolean;
+  customDirectory?: string;
+}
+
+/**
+ * A file that has finished downloading (untouched, still in the OS Downloads
+ * folder) and is waiting in the Inbox for the user to review/edit and click
+ * "Organize" — see the Download → Inbox → Edit → Organize plan. No filesystem
+ * operation happens until it is included in an "organize-batch" request.
+ */
+export type PendingAssetStatus = "pending" | "organizing" | "organized" | "failed";
+
+export interface PendingAsset {
+  id: string;
+  browserDownloadId: number;
+  /** Absolute path in the OS Downloads folder, captured once when the download
+   * completed (§F-1 Session Snapshot equivalent — never re-read afterwards). */
+  sourcePath: string;
+  originalFilename: string;
+  extension: string;
+  mediaType: MediaType;
+  source: string;
+  downloadedAt: number;
+  status: PendingAssetStatus;
+  errorMessage?: string;
+  /** UI multi-select state, persisted so it survives a popup/tab close+reopen. */
+  selected: boolean;
+  /** Folder/filename Auto vs Custom is expressed by the existing
+   * customDirectoryEnabled/customFilenameEnabled flags already on NamingFields —
+   * no separate mode enum needed, single source of truth. */
+  naming: NamingFields;
+}
+
+/** One item in a batch "Organize" request — same shape as a "route-file"
+ * request minus the discriminant, since organizing one asset IS routing one
+ * file; a batch is just several of these run through the same worker pool. */
+export interface OrganizeBatchItem {
+  jobId: string;
+  sourcePath: string;
+  extension: string;
+  mediaType: MediaType;
+  /** The AI source this asset came from (e.g. "chatgpt", "gemini", or
+   * whatever the user edited it to) — available as the {source} naming
+   * token (§H) so filenames can include it. */
+  source: string;
+  reservedIndex: number;
+  naming: NamingFields;
+}
+
+export interface OrganizeBatchItemResult {
+  jobId: string;
+  ok: boolean;
+  finalPath?: string;
+  error?: string;
+  code?: NativeErrorCode;
 }
 
 export type NativeRequest =
@@ -166,25 +181,44 @@ export type NativeRequest =
       sourcePath: string;
       extension: string;
       mediaType: MediaType;
+      source: string;
       reservedIndex: number;
       naming: NamingFields;
+    }
+  | {
+      // §11 Organize Flow: one Native Messaging round trip per Organize click,
+      // covering every selected Pending Asset. Failure Isolation (§F-1) still
+      // applies per item — one item failing never blocks or rolls back others.
+      type: "organize-batch";
+      items: OrganizeBatchItem[];
     }
   | {
       // No caller-supplied regex/pattern (§F-2): the Agent derives its own scan
       // pattern from these logical fields so a compromised Extension can never hand
       // the Agent an attacker-controlled regex (ReDoS surface).
       type: "get-max-index";
-      naming: Pick<NamingFields, "project" | "sequence" | "shot" | "bucketId" | "customFolderName">;
+      naming: Pick<
+        NamingFields,
+        "project" | "sequence" | "shot" | "bucketId" | "customFolderName" | "customDirectoryEnabled" | "customDirectory"
+      >;
     }
   | { type: "sync-settings"; settings: Omit<AgentConfig, "allowedExtensionId"> }
   | { type: "get-settings" }
-  | { type: "ping" };
+  | { type: "ping" }
+  /**
+   * Popups can't get a real filesystem path from the browser (Chrome never
+   * exposes absolute paths to web/extension content, by design) — so the
+   * native OS folder dialog is shown by the Agent itself (a real local
+   * process), which returns the chosen path as a plain string.
+   */
+  | { type: "pick-directory" };
 
 export type NativeErrorCode =
   | "OUTSIDE_ROOT"
   | "ROOT_NOT_CONFIGURED"
   | "ROOT_UNAVAILABLE"
   | "SOURCE_PATH_INVALID"
+  | "SOURCE_NOT_FOUND"
   | "CONFLICT_LIMIT_EXCEEDED"
   | "MISSING_REQUIRED_FIELD"
   | "IO_ERROR";
@@ -192,7 +226,10 @@ export type NativeErrorCode =
 export type NativeResponse =
   | { type: "route-file-result"; jobId: string; ok: true; finalPath: string }
   | { type: "route-file-result"; jobId: string; ok: false; error: string; code: NativeErrorCode }
+  | { type: "organize-batch-result"; results: OrganizeBatchItemResult[] }
   | { type: "get-max-index-result"; maxIndex: number }
   | { type: "sync-settings-result"; ok: boolean }
   | { type: "get-settings-result"; settings: Omit<AgentConfig, "allowedExtensionId"> }
-  | { type: "pong" };
+  | { type: "pong" }
+  | { type: "pick-directory-result"; ok: true; path: string | null } // null = user cancelled the dialog
+  | { type: "pick-directory-result"; ok: false; error: string };

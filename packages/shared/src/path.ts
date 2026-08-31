@@ -15,7 +15,11 @@ export class MissingRequiredFieldError extends Error {
 }
 
 export interface NamingLike {
-  [key: string]: string | undefined;
+  // Callers may pass a richer object (e.g. NamingFields, which also carries
+  // boolean flags like customDirectoryEnabled) — only string-keyed level
+  // values are ever read here, so the index signature just needs to not
+  // reject those extra non-string properties structurally.
+  [key: string]: string | boolean | undefined;
 }
 
 /**
@@ -32,7 +36,8 @@ export function resolveDestinationFolderSegments(
   const segments: string[] = [];
 
   for (const level of levels) {
-    const value = naming[level.key]?.trim();
+    const raw = naming[level.key];
+    const value = typeof raw === "string" ? raw.trim() : undefined;
     if (value) {
       segments.push(sanitizeSegment(value));
     } else if (level.required) {
@@ -62,3 +67,20 @@ export function conflictCandidateFilename(baseName: string, extension: string, a
 }
 
 export const MAX_CONFLICT_ATTEMPTS = 999;
+
+/**
+ * Splits a user-typed "custom directory" string into sanitized path segments,
+ * reusing sanitizeSegment for every piece — the same function that already
+ * rejects "", ".", and ".." (§F-2). This is what lets Custom Directory need no
+ * new security logic: an absolute-looking input like "C:\Windows\System32"
+ * just has its ":" stripped and becomes the safe relative segments
+ * ["C", "Windows", "System32"] under Root; "..\..\secret" throws
+ * PathTraversalError from the ".." segment exactly like any other field does.
+ */
+export function splitCustomDirectorySegments(rawPath: string): string[] {
+  return rawPath
+    .split(/[\\/]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map((s) => sanitizeSegment(s));
+}

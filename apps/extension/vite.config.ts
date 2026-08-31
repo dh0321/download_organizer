@@ -20,6 +20,7 @@ export default defineConfig({
       input: {
         popup: path.resolve(__dirname, "src/popup/index.html"),
         options: path.resolve(__dirname, "src/options/index.html"),
+        inbox: path.resolve(__dirname, "src/inbox/index.html"),
       },
     },
   },

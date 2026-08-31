@@ -91,6 +91,55 @@ describe("resolveSafeDestination", () => {
       await rm(outside, { recursive: true, force: true });
     }
   });
+
+  describe("Custom Directory", () => {
+    it("routes to the custom directory instead of the project/sequence/shot/bucket path", async () => {
+      const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
+      const dest = await resolveSafeDestination(
+        config,
+        naming({ customDirectoryEnabled: true, customDirectory: "ClientA\\ReviewBatch2" }),
+      );
+      expect(dest).toBe(path.join(root, "ClientA", "ReviewBatch2"));
+    });
+
+    it("ignores project/sequence/shot/bucket entirely once customDirectoryEnabled is true", async () => {
+      const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
+      // Even with project intentionally empty (would normally throw
+      // MISSING_REQUIRED_FIELD), custom directory routing must not care.
+      const dest = await resolveSafeDestination(
+        config,
+        naming({ project: "", customDirectoryEnabled: true, customDirectory: "Standalone" }),
+      );
+      expect(dest).toBe(path.join(root, "Standalone"));
+    });
+
+    it("rejects a '..' traversal attempt inside the custom directory", async () => {
+      const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
+      await expect(
+        resolveSafeDestination(config, naming({ customDirectoryEnabled: true, customDirectory: "..\\secret" })),
+      ).rejects.toMatchObject({ code: "OUTSIDE_ROOT" });
+    });
+
+    it("reports MISSING_REQUIRED_FIELD when enabled but empty", async () => {
+      const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
+      await expect(
+        resolveSafeDestination(config, naming({ customDirectoryEnabled: true, customDirectory: "" })),
+      ).rejects.toMatchObject({ code: "MISSING_REQUIRED_FIELD" });
+    });
+
+    it("still rejects a symlink/junction escape planted inside the custom directory path", async () => {
+      const outside = await mkdtemp(path.join(tmpdir(), "aias-outside-"));
+      try {
+        await symlink(outside, path.join(root, "Escaped"), "dir");
+        const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
+        await expect(
+          resolveSafeDestination(config, naming({ customDirectoryEnabled: true, customDirectory: "Escaped" })),
+        ).rejects.toMatchObject({ code: "OUTSIDE_ROOT" });
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
 });
 
 describe("assertWithinRoot (prefix-boundary logic)", () => {

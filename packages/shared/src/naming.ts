@@ -13,6 +13,8 @@ export interface BuildFilenameTokens {
   index: number;
   version?: number;
   date?: string;
+  /** The AI source (e.g. "chatgpt", "gemini", or a user-edited value) — see PendingAsset.source. */
+  source?: string;
   customFilenameEnabled: boolean;
   customFilename: string;
 }
@@ -39,11 +41,13 @@ export function buildFilename(template: string, tokens: BuildFilenameTokens, ext
   const slots = parseTemplate(template);
   const values: string[] = [];
 
-  slots.forEach((slot, i) => {
+  slots.forEach((slot) => {
     let v = "";
-    if (i === 0) {
-      // First slot is always the "identifier" with a fallback chain, regardless of
-      // its literal token name (§H) — shot -> sequence -> project -> "asset".
+    if (slot === "shot") {
+      // §H identifier fallback chain — applies wherever {shot} appears in the
+      // template (not tied to its position), since it's the one token whose
+      // whole point is "the thing this asset is identified by":
+      // shot -> sequence -> project -> "asset".
       const identifier = tokens.shot || tokens.sequence || tokens.project || "asset";
       v = sanitizeSegment(identifier);
     } else if (slot === "description") {
@@ -61,8 +65,8 @@ export function buildFilename(template: string, tokens: BuildFilenameTokens, ext
       v = tokens.project ? sanitizeSegment(tokens.project) : "";
     } else if (slot === "sequence") {
       v = tokens.sequence ? sanitizeSegment(tokens.sequence) : "";
-    } else if (slot === "shot") {
-      v = tokens.shot ? sanitizeSegment(tokens.shot) : "";
+    } else if (slot === "source") {
+      v = tokens.source ? sanitizeSegment(tokens.source) : "";
     }
 
     if (v) values.push(v);

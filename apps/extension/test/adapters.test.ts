@@ -80,6 +80,41 @@ describe("makeHostAdapter / matchesDownload", () => {
       }),
     ).toBe(false);
   });
+
+  it("matches a blob: download URL with no referrer, falling back to a recent same-origin intent ping (real ChatGPT shape)", () => {
+    const now = Date.now();
+    // Confirmed live: ChatGPT's actual download URL for a generated image is
+    // exactly this shape, and Chrome leaves `referrer` empty for it — a
+    // blob: URL's hostname is always "" per the URL spec (blob isn't a
+    // "special" scheme), so neither url nor referrer carries any host info.
+    expect(
+      adapter.matchesDownload({
+        url: "blob:https://example.com/edd88778-e08f-43d4-b969-50f7ef092a77",
+        referrer: "",
+        recentIntentPing: { origin: "https://example.com", timestamp: now - 500 },
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects a blob: download with no host info at all when there is no intent ping", () => {
+    expect(
+      adapter.matchesDownload({
+        url: "blob:https://example.com/edd88778-e08f-43d4-b969-50f7ef092a77",
+        referrer: "",
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a blob: download whose intent ping is from an unrelated origin", () => {
+    const now = Date.now();
+    expect(
+      adapter.matchesDownload({
+        url: "blob:https://example.com/edd88778-e08f-43d4-b969-50f7ef092a77",
+        referrer: "",
+        recentIntentPing: { origin: "https://unrelated.com", timestamp: now - 500 },
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("findMatchingAdapter (registry)", () => {

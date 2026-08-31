@@ -4,15 +4,20 @@
 // surface (§F-2 Minimum Privilege) — there is no other way for a request to cause
 // a filesystem operation.
 
-import type { NativeRequest, NativeResponse } from "@ai-asset-saver/shared";
+import type { NativeRequest, NativeResponse, OrganizeBatchItemResult } from "@ai-asset-saver/shared";
 import type { AgentConfigStore } from "./agentConfig.js";
 import type { JobWorkerPool } from "./jobQueue.js";
 import { handleRouteFile } from "./routeFile.js";
 import { getMaxIndex } from "./getMaxIndex.js";
+import { pickDirectory } from "./directoryPicker.js";
 
 export interface DispatchDeps {
   configStore: AgentConfigStore;
   jobQueue: JobWorkerPool;
+  /** Injectable only for tests, so they don't depend on the real machine's
+   * ~/Downloads contents (see routeFile.ts's assertWithinDownloads). Omit in
+   * production to use the real OS default. */
+  downloadsRoot?: string;
 }
 
 export async function dispatch(deps: DispatchDeps, req: NativeRequest): Promise<NativeResponse> {
@@ -39,7 +44,48 @@ export async function dispatch(deps: DispatchDeps, req: NativeRequest): Promise<
       // Routed through the concurrency-limited worker pool (§F-1 Processing Queue) —
       // never executed inline, so a burst of route-file requests never runs more
       // filesystem operations at once than maxConcurrentFileOps allows.
-      return deps.jobQueue.submit(() => handleRouteFile(deps.configStore.get(), req));
+      return deps.jobQueue.submit(() => handleRouteFile(deps.configStore.get(), req, deps.downloadsRoot));
+    }
+
+    case "organize-batch": {
+      // §11 Organize Flow: one request covering every selected Pending Asset.
+      // Each item is really just a "route-file" — reuse handleRouteFile as-is
+      // (same worker-pool concurrency limit, same Failure Isolation: a rejection
+      // from one item can never affect another since handleRouteFile always
+      // resolves, never rejects, even on error).
+      const results: OrganizeBatchItemResult[] = await Promise.all(
+        req.items.map(async (item) => {
+          const result = await deps.jobQueue.submit(() =>
+            handleRouteFile(
+              deps.configStore.get(),
+              {
+                type: "route-file",
+                jobId: item.jobId,
+                sourcePath: item.sourcePath,
+                extension: item.extension,
+                mediaType: item.mediaType,
+                source: item.source,
+                reservedIndex: item.reservedIndex,
+                naming: item.naming,
+              },
+              deps.downloadsRoot,
+            ),
+          );
+          return result.ok
+            ? { jobId: item.jobId, ok: true as const, finalPath: result.finalPath }
+            : { jobId: item.jobId, ok: false as const, error: result.error, code: result.code };
+        }),
+      );
+      return { type: "organize-batch-result", results };
+    }
+
+    case "pick-directory": {
+      try {
+        const path = await pickDirectory();
+        return { type: "pick-directory-result", ok: true, path };
+      } catch (e) {
+        return { type: "pick-directory-result", ok: false, error: (e as Error).message };
+      }
     }
   }
 }

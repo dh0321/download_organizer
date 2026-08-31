@@ -65,4 +65,23 @@ describe("buildFilename", () => {
     );
     expect(result).toBe("badname.png");
   });
+
+  it("includes the {source} token when present in the template", () => {
+    expect(buildFilename("{shot}_{source}_{index}", tokens({ source: "chatgpt" }), ".png")).toBe(
+      "SH020_chatgpt_023.png",
+    );
+  });
+
+  it("drops the source segment when source is empty", () => {
+    expect(buildFilename("{shot}_{source}_{index}", tokens({ source: "" }), ".png")).toBe("SH020_023.png");
+  });
+
+  it("uses each token's own value regardless of position — {shot} isn't the only slot eligible for the identifier fallback (regression: a non-shot token at position 0 must not be silently replaced by the fallback chain)", () => {
+    // description at position 0 must use the real description, not the shot/sequence/project fallback
+    expect(buildFilename("{description}_{index}", tokens(), ".png")).toBe("woman_red_dress_closeup_023.png");
+    // {shot} still gets its fallback chain wherever it appears, even mid-template
+    expect(buildFilename("{description}_{shot}_{index}", tokens({ shot: "" }), ".png")).toBe(
+      "woman_red_dress_closeup_SQ010_023.png",
+    );
+  });
 });

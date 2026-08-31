@@ -1,23 +1,28 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { dispatch } from "../src/dispatch.js";
 import { AgentConfigStore, defaultAgentConfig } from "../src/agentConfig.js";
 import { JobWorkerPool } from "../src/jobQueue.js";
-import { STAGING_DIR_NAME } from "../src/routeFile.js";
+
+// dispatch's "pick-directory" case calls the real OS (osascript/powershell) via
+// directoryPicker.ts — mock it here so tests never spawn a real dialog.
+vi.mock("../src/directoryPicker.js", () => ({
+  pickDirectory: vi.fn(),
+}));
+import { pickDirectory } from "../src/directoryPicker.js";
 
 describe("dispatch", () => {
   let root: string;
-  let stagingDir: string;
+  let downloadsDir: string;
   let configDir: string;
   let configStore: AgentConfigStore;
   let jobQueue: JobWorkerPool;
 
   beforeEach(async () => {
     root = await mkdtemp(path.join(tmpdir(), "aias-root-"));
-    stagingDir = path.join(await mkdtemp(path.join(tmpdir(), "aias-downloads-")), STAGING_DIR_NAME);
-    await mkdir(stagingDir, { recursive: true });
+    downloadsDir = await mkdtemp(path.join(tmpdir(), "aias-downloads-"));
     configDir = await mkdtemp(path.join(tmpdir(), "aias-config-"));
 
     configStore = new AgentConfigStore(path.join(configDir, "agent-config.json"), {
@@ -29,6 +34,7 @@ describe("dispatch", () => {
 
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
+    await rm(downloadsDir, { recursive: true, force: true });
     await rm(configDir, { recursive: true, force: true });
   });
 
@@ -67,17 +73,18 @@ describe("dispatch", () => {
   });
 
   it("routes a route-file request end to end through the real handler", async () => {
-    const src = path.join(stagingDir, "a.png");
+    const src = path.join(downloadsDir, "a.png");
     await writeFile(src, "bytes");
 
     const res = await dispatch(
-      { configStore, jobQueue },
+      { configStore, jobQueue, downloadsRoot: downloadsDir },
       {
         type: "route-file",
         jobId: "job-1",
         sourcePath: src,
         extension: ".png",
         mediaType: "image",
+        source: "chatgpt",
         reservedIndex: 1,
         naming: {
           project: "P",
@@ -101,11 +108,68 @@ describe("dispatch", () => {
     }
   });
 
+  it("organize-batch processes every item independently — one failure never blocks the others (§F-1 Failure Isolation)", async () => {
+    const goodSrc = path.join(downloadsDir, "good.png");
+    await writeFile(goodSrc, "bytes");
+    const missingSrc = path.join(downloadsDir, "already-gone.png"); // never created -> SOURCE_NOT_FOUND
+    const otherGoodSrc = path.join(downloadsDir, "other-good.mov");
+    await writeFile(otherGoodSrc, "video bytes");
+
+    const naming = {
+      project: "P",
+      sequence: "",
+      shot: "SH010",
+      bucketId: "generated",
+      description: "",
+      namingPresetId: "default",
+      namingTemplate: "{shot}_{type}_{description}_{index}",
+      customFilenameEnabled: false,
+      customFilename: "",
+    };
+
+    const res = await dispatch(
+      { configStore, jobQueue, downloadsRoot: downloadsDir },
+      {
+        type: "organize-batch",
+        items: [
+          { jobId: "job-good", sourcePath: goodSrc, extension: ".png", mediaType: "image", source: "chatgpt", reservedIndex: 1, naming },
+          { jobId: "job-missing", sourcePath: missingSrc, extension: ".png", mediaType: "image", source: "chatgpt", reservedIndex: 2, naming },
+          { jobId: "job-other-good", sourcePath: otherGoodSrc, extension: ".mov", mediaType: "video", source: "gemini", reservedIndex: 3, naming },
+        ],
+      },
+    );
+
+    expect(res.type).toBe("organize-batch-result");
+    if (res.type !== "organize-batch-result") throw new Error("expected organize-batch-result");
+    const byJobId = Object.fromEntries(res.results.map((r) => [r.jobId, r]));
+    expect(byJobId["job-good"]).toMatchObject({ ok: true });
+    expect(byJobId["job-missing"]).toMatchObject({ ok: false, code: "SOURCE_NOT_FOUND" });
+    expect(byJobId["job-other-good"]).toMatchObject({ ok: true });
+  });
+
   it("reports get-max-index as 0 for a never-used destination", async () => {
     const res = await dispatch(
       { configStore, jobQueue },
       { type: "get-max-index", naming: { project: "P", sequence: "", shot: "SH010", bucketId: "generated" } },
     );
     expect(res).toEqual({ type: "get-max-index-result", maxIndex: 0 });
+  });
+
+  it("returns the picked path on pick-directory", async () => {
+    vi.mocked(pickDirectory).mockResolvedValueOnce("/Users/dahye/AI_Projects");
+    const res = await dispatch({ configStore, jobQueue }, { type: "pick-directory" });
+    expect(res).toEqual({ type: "pick-directory-result", ok: true, path: "/Users/dahye/AI_Projects" });
+  });
+
+  it("returns ok:true with a null path when the user cancels the dialog", async () => {
+    vi.mocked(pickDirectory).mockResolvedValueOnce(null);
+    const res = await dispatch({ configStore, jobQueue }, { type: "pick-directory" });
+    expect(res).toEqual({ type: "pick-directory-result", ok: true, path: null });
+  });
+
+  it("returns ok:false when the native picker throws (e.g. unsupported platform)", async () => {
+    vi.mocked(pickDirectory).mockRejectedValueOnce(new Error("Native directory picker is not supported on this platform: linux"));
+    const res = await dispatch({ configStore, jobQueue }, { type: "pick-directory" });
+    expect(res).toMatchObject({ type: "pick-directory-result", ok: false });
   });
 });

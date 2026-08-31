@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-bundle/
 *.tsbuildinfo
 
 # Agent local runtime state — never commit a real Default Root/config from a dev run

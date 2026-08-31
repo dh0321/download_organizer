@@ -2,6 +2,7 @@
 // status. FolderTemplate/multi-preset/bucket CRUD editors are Phase 2 (§O).
 
 import { useEffect, useState } from "react";
+import "../styles/theme.css";
 
 export function App() {
   const [defaultRoot, setDefaultRoot] = useState("");
@@ -25,7 +26,7 @@ export function App() {
     chrome.runtime.sendMessage({ type: "aias-set-default-root", root: draft }, (res) => {
       if (res?.ok) {
         setDefaultRoot(draft);
-        setSavedMessage("Saved.");
+        setSavedMessage("Saved");
         setTimeout(() => setSavedMessage(""), 2000);
       } else {
         setSavedMessage(`Failed: ${res?.error ?? "unknown error"}`);
@@ -33,38 +34,49 @@ export function App() {
     });
   }
 
+  const modifier = status === "connected" ? "aias-badge-on" : status === "checking" ? "aias-badge-neutral" : "";
+  const statusText = status === "checking" ? "Checking…" : status === "connected" ? "Connected" : "Not running";
+
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", maxWidth: 480, margin: "24px auto" }}>
-      <h1>AI Asset Saver — Settings</h1>
+    <div style={{ minHeight: "100vh" }}>
+      <div className="aias-app" style={{ maxWidth: 440, margin: "0 auto", paddingTop: 32 }}>
+        <h1 className="aias-title" style={{ fontSize: 22 }}>
+          AI Asset Saver — Settings
+        </h1>
 
-      <section style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 14 }}>Local Agent</h2>
-        <p>
-          Status:{" "}
-          <strong style={{ color: status === "connected" ? "#2a2" : "#a22" }}>
-            {status === "checking" ? "checking..." : status === "connected" ? "Connected" : "Not running"}
-          </strong>
-        </p>
-        {status !== "connected" && (
-          <p style={{ color: "#666" }}>
-            Install and run the AI Asset Saver Agent, then reload this page. See the project README for the
-            Windows installer.
+        <div className="aias-card">
+          <p className="aias-card-title">Local Agent</p>
+          <span className={`aias-badge ${modifier}`.trim()}>
+            <span className="aias-badge-dot" />
+            {statusText}
+          </span>
+          {status !== "connected" && (
+            <p className="aias-subtext">
+              Install and run the AI Asset Saver Agent, then reload this page. See the project README for the
+              Windows installer.
+            </p>
+          )}
+        </div>
+
+        <div className="aias-card">
+          <p className="aias-card-title">Default root</p>
+          <p className="aias-subtext" style={{ margin: "0 0 8px" }}>
+            Current: {defaultRoot || "(not set)"}
           </p>
-        )}
-      </section>
-
-      <section>
-        <h2 style={{ fontSize: 14 }}>Default Root</h2>
-        <p style={{ color: "#666" }}>Current: {defaultRoot || "(not set)"}</p>
-        <input
-          style={{ width: "100%", boxSizing: "border-box", marginBottom: 8 }}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="D:\AI_Projects or \\nas\studio\AI_Projects"
-        />
-        <button onClick={save}>Save</button>
-        {savedMessage && <span style={{ marginLeft: 8 }}>{savedMessage}</span>}
-      </section>
+          <input
+            className="aias-input"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="D:\AI_Projects or \\nas\studio\AI_Projects"
+          />
+          <div className="aias-row" style={{ marginTop: 10 }}>
+            <button className="aias-btn" onClick={save}>
+              Save
+            </button>
+            {savedMessage && <span className="aias-subtext">{savedMessage}</span>}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

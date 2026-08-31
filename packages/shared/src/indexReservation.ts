@@ -1,10 +1,13 @@
 // §F-1 Index Reservation — a synchronous, race-free in-memory counter.
 //
 // This MUST be driven synchronously (no `await` between reading and incrementing)
-// from within the Extension's onDeterminingFilename handler for the race-freedom
-// argument in PLAN.md §F-1 to hold: MV3 service workers are single-threaded, so as
-// long as increment() never yields to the event loop mid-operation, concurrently
-// "detected" downloads cannot observe or produce a duplicate index.
+// for the race-freedom argument in PLAN.md §F-1 to hold: MV3 service workers are
+// single-threaded, so as long as reserveNext() never yields to the event loop
+// mid-loop, several Pending Assets organized in the same Organize click cannot
+// observe or produce a duplicate index. (Originally driven from
+// onDeterminingFilename at download-detection time; the Download → Inbox →
+// Organize redesign moved the call site to Organize-click time — see
+// jobManager.ts's reserveIndicesForOrganize — but the technique is unchanged.)
 //
 // The Agent-reported `get-max-index` value (via reconcile()) is a *lower bound*
 // correction only — this counter is never the sole authority against disk reality;
@@ -23,6 +26,16 @@ export function buildIndexKey(parts: {
     .join("|");
 }
 
+/**
+ * Index key for Custom Directory jobs (§F-1): the actual destination folder no
+ * longer depends on project/sequence/shot/bucket once Custom Directory is on
+ * (see fileRouter.ts's computeCandidatePath), so the sequential counter must
+ * key off the custom directory string itself instead.
+ */
+export function buildIndexKeyForCustomDirectory(customDirectory: string, mediaType: string): string {
+  return `custom-dir:${customDirectory.trim().toLowerCase()}|${mediaType.trim().toLowerCase()}`;
+}
+
 export class IndexReservationCounter {
   private counters: Map<string, number>;
 
@@ -32,8 +45,8 @@ export class IndexReservationCounter {
 
   /**
    * Synchronously reserves and returns the next index for `key`, starting at 1.
-   * Call this exactly once per DownloadJob, inside the detection callback, with no
-   * `await` before it.
+   * Call this exactly once per Pending Asset being organized, inside the
+   * synchronous reservation loop, with no `await` before it.
    */
   reserveNext(key: string): number {
     const current = this.counters.get(key) ?? 0;

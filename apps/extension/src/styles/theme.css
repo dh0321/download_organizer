@@ -1,0 +1,441 @@
+/* Monotone theme: rounded shapes/cards/controls, grayscale palette only —
+   no hue-based color. Status is conveyed via filled-vs-outline, not color. */
+
+:root {
+  --color-bg: #f4f4f5;
+  --color-card: #ffffff;
+  --color-text: #18181b;
+  --color-text-muted: #8a8a92;
+  --color-border: #e4e4e7;
+
+  --color-accent: #18181b;
+  --color-accent-soft: #f0f0f1;
+  --color-accent-hover: #333338;
+
+  /* The one deliberate exception to the monotone palette: a low-saturation sage
+     used to signal a positive/selected state — "AI Session is ON" (toggle +
+     session card) and a selected naming-token chip (.aias-chip.active).
+     Everything else stays grayscale. */
+  --color-active: #6f9c85;
+  --color-active-soft: #e9f1ec;
+  --color-active-text: #3f6b56;
+
+  --radius-lg: 22px;
+  --radius-md: 14px;
+  --radius-full: 999px;
+
+  --shadow-tiny: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: -apple-system, "Segoe UI", "Pretendard", system-ui, sans-serif;
+}
+
+.aias-app {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aias-title {
+  font-size: 17px;
+  font-weight: 800;
+  margin: 0 0 2px;
+  letter-spacing: -0.02em;
+}
+
+.aias-card {
+  background: var(--color-card);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+  box-shadow: var(--shadow-tiny);
+  border: 1px solid var(--color-border);
+}
+
+.aias-card-title {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--color-text-muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0 0 4px;
+}
+
+.aias-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 8px 0;
+}
+
+.aias-row-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.aias-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.aias-subtext {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+/* Pill-shaped toggle switch */
+.aias-toggle {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 26px;
+  flex-shrink: 0;
+}
+.aias-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.aias-toggle-track {
+  position: absolute;
+  inset: 0;
+  background: var(--color-border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.aias-toggle input:checked + .aias-toggle-track {
+  background: var(--color-active);
+}
+.aias-toggle-track::before {
+  content: "";
+  position: absolute;
+  height: 20px;
+  width: 20px;
+  left: 3px;
+  top: 3px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s ease;
+}
+.aias-toggle input:checked + .aias-toggle-track::before {
+  transform: translateX(18px);
+}
+
+.aias-field {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.aias-field-optional {
+  font-weight: 500;
+  color: var(--color-text-muted);
+  margin-left: 4px;
+  text-transform: none;
+}
+
+.aias-input,
+.aias-select {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 10px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-border);
+  background: #fafafa;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.aias-input:focus,
+.aias-select:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+.aias-input:disabled,
+.aias-select:disabled {
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+.aias-checkbox-row:has(input:disabled) {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.aias-btn {
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  background: var(--color-accent);
+  color: white;
+  box-shadow: var(--shadow-tiny);
+  transition: transform 0.1s ease, background 0.15s ease;
+}
+.aias-btn:hover {
+  background: var(--color-accent-hover);
+}
+.aias-btn:active {
+  transform: scale(0.96);
+}
+.aias-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+.aias-btn-ghost {
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+  box-shadow: none;
+}
+.aias-btn-ghost:hover {
+  background: var(--color-border);
+}
+/* Distinct from .aias-badge (also a soft-filled pill) on purpose — an action
+   button must never look like a passive status indicator. Outline instead of
+   filled. */
+.aias-btn-outline {
+  background: transparent;
+  color: var(--color-text);
+  border: 1.5px solid var(--color-border);
+  box-shadow: none;
+}
+.aias-btn-outline:hover {
+  background: var(--color-accent-soft);
+}
+
+.aias-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.aias-checkbox-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-accent);
+  border-radius: 6px;
+}
+
+.aias-mono {
+  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  background: var(--color-accent-soft);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+/* Status badge: monotone — meaning comes from filled vs. outline dot, not hue */
+.aias-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--radius-full);
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+.aias-badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-text);
+  background: transparent;
+}
+.aias-badge-on .aias-badge-dot {
+  background: var(--color-text);
+}
+.aias-badge-neutral {
+  color: var(--color-text-muted);
+}
+.aias-badge-neutral .aias-badge-dot {
+  border-color: var(--color-text-muted);
+}
+
+.aias-footer {
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+/* AI Session state (§D) — the one card allowed to use --color-active */
+.aias-session-card--on {
+  background: var(--color-active-soft);
+  border-color: var(--color-active);
+}
+.aias-session-card--on .aias-subtext {
+  color: var(--color-active-text);
+  font-weight: 600;
+}
+
+/* Sections that only matter while AI Session is ON get dimmed + inert when it's
+   OFF — Default Root is deliberately excluded (it's a standing setting, not
+   something tied to "the next download"). */
+.aias-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+  filter: grayscale(1);
+}
+
+/* Auto/Custom segmented control (Folder mode, Name mode) */
+.aias-segmented {
+  display: inline-flex;
+  background: var(--color-accent-soft);
+  border-radius: var(--radius-full);
+  padding: 3px;
+  gap: 2px;
+}
+.aias-segmented button {
+  border: none;
+  background: transparent;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+.aias-segmented button.active {
+  background: var(--color-accent);
+  color: white;
+}
+.aias-segmented button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Multi-select token chips (Filename Naming Rule §7) — unlike .aias-segmented
+   (one shared pill-shaped track, exactly one button active at a time), each
+   chip here is its own independently-rounded pill with space between them,
+   matching reference/selecting.png's style: filled + checkmark when selected,
+   soft outline + "+" when not. Colors kept low-saturation/on-brand — reuses
+   the existing --color-active sage rather than the reference's saturated
+   pink/blue. */
+.aias-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.aias-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  background: var(--color-accent-soft);
+  color: var(--color-text-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.aias-chip:hover {
+  background: var(--color-border);
+}
+.aias-chip.active {
+  background: var(--color-active);
+  color: white;
+}
+.aias-chip.active:hover {
+  background: var(--color-active);
+}
+.aias-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Inbox (§7) — per-asset thumbnail and the sticky Organize bar */
+.aias-thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--color-accent-soft);
+}
+.aias-thumb-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.aias-organize-bar {
+  position: sticky;
+  bottom: 0;
+  background: var(--color-card);
+  border-top: 1px solid var(--color-border);
+  padding: 14px 16px;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.06);
+}
+
+/* Inbox page shell (§7) — same design tokens as the popup (radii, colors), just
+   slightly more generous spacing since the page is ~2.4x the popup's width;
+   a flat re-use of the popup's tight 320px-tuned padding/gap looked sparse at
+   this width. Added alongside .aias-app (not merged into it) so the popup and
+   options page keep their own tuned spacing untouched. */
+.aias-inbox-shell {
+  gap: 14px;
+  padding: 20px 24px 96px;
+}
+.aias-inbox-shell .aias-card {
+  padding: 16px 20px;
+}
+
+.aias-btn-sm {
+  padding: 5px 12px;
+  font-size: 11px;
+}
+
+.aias-asset-header {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+  align-items: flex-start;
+}
+
+.aias-asset-header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.aias-checkbox-lg {
+  margin-top: 4px;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-accent);
+}

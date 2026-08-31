@@ -10,6 +10,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import {
   resolveDestinationFolderSegments,
+  splitCustomDirectorySegments,
   MissingRequiredFieldError,
   type AgentConfig,
   type NamingFields,
@@ -27,16 +28,22 @@ export class RoutingError extends Error {
   }
 }
 
-/** Exported for direct unit testing of the prefix-boundary logic (see fileRouter.test.ts). */
-export function assertWithinRoot(candidate: string, root: string): void {
-  // Case-insensitive comparison because Windows filesystems are case-insensitive by
-  // default (this also means "D:\AI_Projects2" must never match root "D:\AI_Projects"
-  // — hence comparing against root + separator, not a bare string prefix).
+// Case-insensitive comparison because Windows filesystems are case-insensitive by
+// default (this also means "D:\AI_Projects2" must never match root "D:\AI_Projects"
+// — hence comparing against root + separator, not a bare string prefix). Shared by
+// assertWithinRoot (destination boundary) and assertWithinDownloads (source
+// boundary, see routeFile.ts) since both are "is this path a descendant of that
+// root" checks, just against different roots and with different error codes.
+export function isWithinRoot(candidate: string, root: string): boolean {
   const normCandidate = candidate.toLowerCase();
   const normRoot = root.toLowerCase();
   const rootWithSep = normRoot.endsWith(path.sep) ? normRoot : normRoot + path.sep;
+  return normCandidate === normRoot || normCandidate.startsWith(rootWithSep);
+}
 
-  if (normCandidate !== normRoot && !normCandidate.startsWith(rootWithSep)) {
+/** Exported for direct unit testing of the prefix-boundary logic (see fileRouter.test.ts). */
+export function assertWithinRoot(candidate: string, root: string): void {
+  if (!isWithinRoot(candidate, root)) {
     throw new RoutingError("OUTSIDE_ROOT", `Resolved path escapes Default Root: ${candidate}`);
   }
 }
@@ -59,17 +66,34 @@ async function resolveRealRoot(agentConfig: AgentConfig): Promise<string> {
   }
 }
 
-export type FolderNamingFields = Pick<NamingFields, "project" | "sequence" | "shot" | "bucketId" | "customFolderName">;
+export type FolderNamingFields = Pick<
+  NamingFields,
+  "project" | "sequence" | "shot" | "bucketId" | "customFolderName" | "customDirectoryEnabled" | "customDirectory"
+>;
 
 function computeCandidatePath(agentConfig: AgentConfig, root: string, naming: FolderNamingFields): string {
-  const bucketOrCustomFolderName = naming.bucketId
-    ? (agentConfig.assetBuckets.find((b) => b.id === naming.bucketId)?.label ?? naming.bucketId)
-    : (naming.customFolderName ?? "");
-
   let segments: string[];
   try {
-    segments = resolveDestinationFolderSegments(agentConfig.folderTemplate.levels, naming, bucketOrCustomFolderName);
+    if (naming.customDirectoryEnabled) {
+      // Custom Directory replaces the ENTIRE folder-template path (Project/
+      // Sequence/Shot/Save As) — see PLAN.md's "핵심 설계 결정". Project/
+      // Sequence/Shot may still be present in `naming` (they keep feeding the
+      // naming-template identifier), but they play no role in the path here.
+      if (!naming.customDirectory?.trim()) {
+        throw new RoutingError(
+          "MISSING_REQUIRED_FIELD",
+          "customDirectory is required when customDirectoryEnabled is true",
+        );
+      }
+      segments = splitCustomDirectorySegments(naming.customDirectory);
+    } else {
+      const bucketOrCustomFolderName = naming.bucketId
+        ? (agentConfig.assetBuckets.find((b) => b.id === naming.bucketId)?.label ?? naming.bucketId)
+        : (naming.customFolderName ?? "");
+      segments = resolveDestinationFolderSegments(agentConfig.folderTemplate.levels, naming, bucketOrCustomFolderName);
+    }
   } catch (e) {
+    if (e instanceof RoutingError) throw e;
     if (e instanceof MissingRequiredFieldError) {
       throw new RoutingError("MISSING_REQUIRED_FIELD", e.message);
     }

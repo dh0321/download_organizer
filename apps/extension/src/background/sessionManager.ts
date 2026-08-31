@@ -6,15 +6,9 @@ import { SESSION_STORAGE_KEY as STORAGE_KEY } from "./storageKeys.js";
 
 export const DEFAULT_SESSION_STATE: SessionState = {
   aiSessionEnabled: false,
-  currentProject: "",
-  currentSequence: "",
-  currentShot: "",
-  currentBucketId: "generated",
-  currentDescription: "",
-  selectedNamingPresetId: "default",
-  customFilenameEnabled: false,
-  customFilename: "",
-  lastIndexByKey: {},
+  batchDefaultProject: "",
+  batchDefaultSequence: "",
+  batchDefaultBucketId: "generated",
 };
 
 export async function loadSessionState(): Promise<SessionState> {

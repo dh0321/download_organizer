@@ -1,206 +1,217 @@
 import { describe, it, expect, vi } from "vitest";
 import { JobManager } from "../src/background/jobManager.js";
-import type { SessionState } from "@ai-asset-saver/shared";
+import type { NamingFields, PendingAsset } from "@ai-asset-saver/shared";
 
-function session(overrides: Partial<SessionState> = {}): SessionState {
+function naming(overrides: Partial<NamingFields> = {}): NamingFields {
   return {
-    aiSessionEnabled: true,
-    currentProject: "Galaxy_S27",
-    currentSequence: "SQ010",
-    currentShot: "SH020",
-    currentBucketId: "generated",
-    currentDescription: "woman red dress closeup",
-    selectedNamingPresetId: "default",
+    project: "Galaxy_S27",
+    sequence: "SQ010",
+    shot: "SH020",
+    bucketId: "generated",
+    description: "woman red dress closeup",
+    namingPresetId: "default",
+    namingTemplate: "{shot}_{type}_{description}_{index}",
     customFilenameEnabled: false,
     customFilename: "",
-    lastIndexByKey: {},
+    customDirectoryEnabled: false,
+    customDirectory: "",
     ...overrides,
   };
 }
 
 function makeDeps() {
   let nextId = 0;
-  const persisted: Record<string, number>[] = [];
+  const persistedAssets: Record<string, PendingAsset>[] = [];
+  const persistedCounters: Record<string, number>[] = [];
   return {
     deps: {
+      loadPendingAssets: vi.fn(async () => ({})),
+      persistPendingAssets: vi.fn((assets: Record<string, PendingAsset>) => {
+        persistedAssets.push(assets);
+      }),
       loadPersistedIndexCounters: vi.fn(async () => ({})),
       persistIndexCounters: vi.fn((snapshot: Record<string, number>) => {
-        persisted.push(snapshot);
+        persistedCounters.push(snapshot);
       }),
       generateJobId: vi.fn(() => `job-${nextId++}`),
     },
-    persisted,
+    persistedAssets,
+    persistedCounters,
   };
 }
 
-describe("JobManager", () => {
-  it("assigns unique, sequential indices for 5 near-simultaneous detections (§F-1)", async () => {
+function register(manager: JobManager, overrides: Partial<Parameters<JobManager["registerPendingAsset"]>[0]> = {}) {
+  return manager.registerPendingAsset({
+    browserDownloadId: 1,
+    sourcePath: "/Users/me/Downloads/a.png",
+    originalFilename: "a.png",
+    extension: ".png",
+    mediaType: "image",
+    source: "chatgpt",
+    downloadedAt: Date.now(),
+    naming: naming(),
+    ...overrides,
+  });
+}
+
+describe("JobManager (Pending Asset store)", () => {
+  it("registers a completed download as a pending, selected-by-default asset with no index reserved yet", async () => {
     const { deps } = makeDeps();
     const manager = await JobManager.create(deps);
 
-    const jobs = [1, 2, 3, 4, 5].map(() =>
-      manager.detectJob({
-        browserDownloadId: 100,
-        originalFilename: "x.png",
-        extension: ".png",
-        mediaType: "image",
-        source: "chatgpt",
-        session: session(),
-        cachedRootForDisplay: "D:\\AI_Projects",
-      }),
-    );
+    const asset = register(manager);
 
-    expect(jobs.map((j) => j.reservedIndex)).toEqual([1, 2, 3, 4, 5]);
-    expect(new Set(jobs.map((j) => j.id)).size).toBe(5);
+    expect(asset.status).toBe("pending");
+    expect(asset.selected).toBe(true);
+    expect(manager.get(asset.id)).toEqual(asset);
+    expect(manager.getByBrowserDownloadId(1)?.id).toBe(asset.id);
   });
 
-  it("keeps each job's reservedIndex fixed no matter what order they later complete in", async () => {
-    const { deps } = makeDeps();
-    const manager = await JobManager.create(deps);
-    const jobs = [1, 2, 3, 4, 5].map(() =>
-      manager.detectJob({
-        browserDownloadId: 1,
-        originalFilename: "x.mov",
-        extension: ".mov",
-        mediaType: "video",
-        source: "gemini",
-        session: session(),
-        cachedRootForDisplay: "",
-      }),
-    );
-
-    // Simulate completion arriving out of order: 025, 023, 027, 024, 026 pattern.
-    const completionOrder = [jobs[2], jobs[0], jobs[4], jobs[1], jobs[3]];
-    for (const job of completionOrder) {
-      manager.setStatus(job.id, "saved");
-    }
-
-    expect(manager.get(jobs[0].id)?.reservedIndex).toBe(1);
-    expect(manager.get(jobs[2].id)?.reservedIndex).toBe(3);
-    expect(manager.get(jobs[4].id)?.reservedIndex).toBe(5);
-    expect(manager.allJobs().every((j) => j.status === "saved")).toBe(true);
-  });
-
-  it("freezes a Session Snapshot at detection time — later SessionState mutation does not affect it", async () => {
-    const { deps } = makeDeps();
-    const manager = await JobManager.create(deps);
-    const liveSession = session({ currentProject: "OriginalProject", currentDescription: "original desc" });
-
-    const job = manager.detectJob({
-      browserDownloadId: 1,
-      originalFilename: "x.png",
-      extension: ".png",
-      mediaType: "image",
-      source: "chatgpt",
-      session: liveSession,
-      cachedRootForDisplay: "",
-    });
-
-    // User changes Project/Description in the popup mid-flight.
-    liveSession.currentProject = "ChangedProject";
-    liveSession.currentDescription = "changed desc";
-
-    expect(job.sessionSnapshot.project).toBe("OriginalProject");
-    expect(job.sessionSnapshot.description).toBe("original desc");
-  });
-
-  it("does not reuse the reservedIndex of a cancelled job (index gap policy)", async () => {
-    const { deps } = makeDeps();
-    const manager = await JobManager.create(deps);
-    const s = session();
-
-    const job1 = manager.detectJob({
-      browserDownloadId: 1,
-      originalFilename: "a.png",
-      extension: ".png",
-      mediaType: "image",
-      source: "chatgpt",
-      session: s,
-      cachedRootForDisplay: "",
-    });
-    const job2 = manager.detectJob({
-      browserDownloadId: 2,
-      originalFilename: "b.png",
-      extension: ".png",
-      mediaType: "image",
-      source: "chatgpt",
-      session: s,
-      cachedRootForDisplay: "",
-    });
-    manager.setStatus(job2.id, "cancelled");
-
-    const job3 = manager.detectJob({
-      browserDownloadId: 3,
-      originalFilename: "c.png",
-      extension: ".png",
-      mediaType: "image",
-      source: "chatgpt",
-      session: s,
-      cachedRootForDisplay: "",
-    });
-
-    expect(job1.reservedIndex).toBe(1);
-    expect(job2.reservedIndex).toBe(2);
-    expect(job3.reservedIndex).toBe(3); // not re-issued as 2, even though job2 was cancelled
-  });
-
-  it("tracks independent counters per project/sequence/shot/bucket/mediaType key", async () => {
-    const { deps } = makeDeps();
+  it("persists to storage on every mutation so the Inbox survives a tab/service-worker restart", async () => {
+    const { deps, persistedAssets } = makeDeps();
     const manager = await JobManager.create(deps);
 
-    const jobShotA = manager.detectJob({
-      browserDownloadId: 1,
-      originalFilename: "a.png",
-      extension: ".png",
-      mediaType: "image",
-      source: "chatgpt",
-      session: session({ currentShot: "SH010" }),
-      cachedRootForDisplay: "",
-    });
-    const jobShotB = manager.detectJob({
-      browserDownloadId: 2,
-      originalFilename: "b.png",
-      extension: ".png",
-      mediaType: "image",
-      source: "chatgpt",
-      session: session({ currentShot: "SH020" }),
-      cachedRootForDisplay: "",
-    });
+    const asset = register(manager);
+    expect(persistedAssets.at(-1)).toEqual({ [asset.id]: asset });
 
-    expect(jobShotA.reservedIndex).toBe(1);
-    expect(jobShotB.reservedIndex).toBe(1); // independent key, starts at 1 too
+    manager.setSelected(asset.id, false);
+    expect(persistedAssets.at(-1)?.[asset.id].selected).toBe(false);
   });
 
-  it("restores index counters from a persisted checkpoint after a simulated service worker restart", async () => {
+  it("restores previously-registered pending assets from a persisted snapshot after a restart", async () => {
     const { deps: firstRunDeps } = makeDeps();
     const manager1 = await JobManager.create(firstRunDeps);
-    manager1.detectJob({
-      browserDownloadId: 1,
-      originalFilename: "a.png",
-      extension: ".png",
-      mediaType: "image",
-      source: "chatgpt",
-      session: session(),
-      cachedRootForDisplay: "",
-    });
+    const asset = register(manager1);
 
-    const lastPersisted = firstRunDeps.persistIndexCounters.mock.calls.at(-1)?.[0];
-
+    const lastPersisted = firstRunDeps.persistPendingAssets.mock.calls.at(-1)?.[0];
     const manager2 = await JobManager.create({
-      loadPersistedIndexCounters: vi.fn(async () => lastPersisted),
+      loadPendingAssets: vi.fn(async () => lastPersisted ?? {}),
+      persistPendingAssets: vi.fn(),
+      loadPersistedIndexCounters: vi.fn(async () => ({})),
       persistIndexCounters: vi.fn(),
       generateJobId: vi.fn(() => "job-restart"),
     });
-    const job = manager2.detectJob({
+
+    expect(manager2.get(asset.id)).toEqual(asset);
+  });
+
+  it("does not auto-apply Batch Defaults changes — only 'apply to selected' overwrites listed assets", async () => {
+    const { deps } = makeDeps();
+    const manager = await JobManager.create(deps);
+    const asset1 = register(manager, { browserDownloadId: 1 });
+    const asset2 = register(manager, { browserDownloadId: 2 });
+    manager.setSelected(asset2.id, false); // only asset1 stays selected
+
+    manager.applyDefaultsToSelected({ project: "NewProject", sequence: "SQ099", bucketId: "final" });
+
+    expect(manager.get(asset1.id)?.naming.project).toBe("NewProject");
+    expect(manager.get(asset1.id)?.naming.bucketId).toBe("final");
+    expect(manager.get(asset2.id)?.naming.project).toBe("Galaxy_S27"); // untouched, was deselected
+  });
+
+  it("lets per-asset naming edits (e.g. switching to Custom Folder) apply independently", async () => {
+    const { deps } = makeDeps();
+    const manager = await JobManager.create(deps);
+    const asset = register(manager);
+
+    manager.updateNaming(asset.id, { customDirectoryEnabled: true, customDirectory: "ClientA\\Round03" });
+
+    expect(manager.get(asset.id)?.naming.customDirectoryEnabled).toBe(true);
+    expect(manager.get(asset.id)?.naming.customDirectory).toBe("ClientA\\Round03");
+    expect(manager.get(asset.id)?.naming.project).toBe("Galaxy_S27"); // unrelated fields untouched
+  });
+
+  it("lets the user correct the auto-detected source directly, persisting the change", async () => {
+    const { deps, persistedAssets } = makeDeps();
+    const manager = await JobManager.create(deps);
+    const asset = register(manager, { source: "chatgpt" });
+
+    manager.updateSource(asset.id, "gemini");
+
+    expect(manager.get(asset.id)?.source).toBe("gemini");
+    expect(persistedAssets.at(-1)?.[asset.id].source).toBe("gemini");
+  });
+
+  it("excludes organized/organizing assets from organizableAssets()", async () => {
+    const { deps } = makeDeps();
+    const manager = await JobManager.create(deps);
+    const pendingAsset = register(manager, { browserDownloadId: 1 });
+    const organizingAsset = register(manager, { browserDownloadId: 2 });
+    const organizedAsset = register(manager, { browserDownloadId: 3 });
+    manager.setStatus(organizingAsset.id, "organizing");
+    manager.setStatus(organizedAsset.id, "organized");
+
+    const organizable = manager.organizableAssets().map((a) => a.id);
+    expect(organizable).toContain(pendingAsset.id);
+    expect(organizable).not.toContain(organizingAsset.id);
+    expect(organizable).not.toContain(organizedAsset.id);
+  });
+
+  it("assigns unique, sequential Organize-time indices for 5 assets Organized together (§F-1)", async () => {
+    const { deps } = makeDeps();
+    const manager = await JobManager.create(deps);
+    const assets = [1, 2, 3, 4, 5].map((n) => register(manager, { browserDownloadId: n }));
+
+    // Synchronous loop, no `await` in between — mirrors the real Organize handler.
+    const indices = assets.map((a) => manager.reserveIndexForOrganize(a));
+
+    expect(indices).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("tracks independent Organize-time counters per project/sequence/shot/bucket/mediaType key", async () => {
+    const { deps } = makeDeps();
+    const manager = await JobManager.create(deps);
+    const assetShotA = register(manager, { browserDownloadId: 1, naming: naming({ shot: "SH010" }) });
+    const assetShotB = register(manager, { browserDownloadId: 2, naming: naming({ shot: "SH020" }) });
+
+    expect(manager.reserveIndexForOrganize(assetShotA)).toBe(1);
+    expect(manager.reserveIndexForOrganize(assetShotB)).toBe(1); // independent key, starts at 1 too
+  });
+
+  it("keys the Organize-time counter off the custom directory, not project/sequence/shot/bucket, when enabled", async () => {
+    const { deps } = makeDeps();
+    const manager = await JobManager.create(deps);
+    const structuredAsset = register(manager, { browserDownloadId: 1 });
+    const customDirAsset1 = register(manager, {
       browserDownloadId: 2,
-      originalFilename: "b.png",
-      extension: ".png",
-      mediaType: "image",
-      source: "chatgpt",
-      session: session(),
-      cachedRootForDisplay: "",
+      naming: naming({ customDirectoryEnabled: true, customDirectory: "ClientA\\ReviewBatch2" }),
+    });
+    const customDirAsset2 = register(manager, {
+      browserDownloadId: 3,
+      naming: naming({ customDirectoryEnabled: true, customDirectory: "ClientA\\ReviewBatch2" }),
     });
 
-    expect(job.reservedIndex).toBe(2); // continues from 1, not reset to 1
+    expect(manager.reserveIndexForOrganize(structuredAsset)).toBe(1);
+    expect(manager.reserveIndexForOrganize(customDirAsset1)).toBe(1);
+    expect(manager.reserveIndexForOrganize(customDirAsset2)).toBe(2);
+  });
+
+  it("reconciles the Organize-time counter against the Agent's real on-disk max before reserving", async () => {
+    const { deps } = makeDeps();
+    const manager = await JobManager.create(deps);
+    const asset = register(manager);
+
+    manager.reconcileIndexFloor("galaxy_s27|sq010|sh020|generated|image", 22);
+
+    expect(manager.reserveIndexForOrganize(asset)).toBe(23); // continues from the disk-reported max, not 1
+  });
+
+  it("restores Organize-time index counters from a persisted checkpoint after a simulated restart", async () => {
+    const { deps: firstRunDeps } = makeDeps();
+    const manager1 = await JobManager.create(firstRunDeps);
+    const firstAsset = register(manager1);
+    manager1.reserveIndexForOrganize(firstAsset);
+
+    const lastPersistedCounters = firstRunDeps.persistIndexCounters.mock.calls.at(-1)?.[0];
+    const manager2 = await JobManager.create({
+      loadPendingAssets: vi.fn(async () => ({})),
+      persistPendingAssets: vi.fn(),
+      loadPersistedIndexCounters: vi.fn(async () => lastPersistedCounters ?? {}),
+      persistIndexCounters: vi.fn(),
+      generateJobId: vi.fn(() => "job-restart"),
+    });
+    const secondAsset = register(manager2);
+
+    expect(manager2.reserveIndexForOrganize(secondAsset)).toBe(2); // continues from 1, not reset
   });
 });

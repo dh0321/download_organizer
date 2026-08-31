@@ -1,10 +1,22 @@
 # AI Asset Saver
 
-Chrome (Windows) extension that automatically renames and routes AI-generated
+Chrome (Windows/macOS) extension that helps you rename and route AI-generated
 images/videos from ChatGPT and Gemini into project folders, only while "AI
 Session" is on. See `PLAN.md` for the original v1 plan and the plan-mode
 history for the current design (Root Sandbox Policy, concurrent-download job
 queue, etc.).
+
+**Download → Inbox → Edit → Organize.** Downloads are left untouched in your
+normal Downloads folder the moment they land — nothing is renamed or moved
+automatically. While AI Session is on, each matching download is registered as
+a *Pending Asset* in the Inbox (`apps/extension/src/inbox/`, opened from the
+popup's "Open Inbox" button). There you review/edit Shot, Description, and
+per-asset Folder/Filename (Auto vs. Custom), optionally use Batch Defaults to
+pre-fill or bulk-apply Project/Sequence/Save As across several assets, then
+click **Organize** to actually create folders and move the selected files —
+that click is the only point any file on disk is touched. AI Session OFF only
+stops new downloads from being registered; anything already in the Inbox stays
+there and can still be organized.
 
 ## Structure
 
@@ -16,7 +28,9 @@ packages/shared/   Pure TS: sanitize/naming/path/index-reservation logic + share
 apps/agent/         Windows Local Agent (Node.js/TS). Owns Default Root/FolderTemplate
                     (Root Sandbox Policy — see fileRouter.ts) and does the actual
                     filesystem work via Native Messaging.
-apps/extension/     Chrome MV3 extension: background service worker, popup,
+apps/extension/     Chrome MV3 extension: background service worker (Pending
+                    Asset store + Organize flow), popup (AI Session + "Open
+                    Inbox"), inbox page (the actual review/edit/Organize UI),
                     options page, content script, per-site adapters.
 ```
 
@@ -32,7 +46,7 @@ npm install
 npm run test          # runs every workspace's vitest suite
 ```
 
-As of this writing: 31 tests in `packages/shared`, 37 in `apps/agent`, 39 in
+As of this writing: 41 tests in `packages/shared`, 57 in `apps/agent`, 53 in
 `apps/extension` — all runnable on macOS/Linux/Windows alike, since they cover
 pure logic and mocked/real-tmp-dir filesystem behavior, not live Chrome APIs.
 
@@ -149,3 +163,51 @@ appendix) and point `install.ps1 -AgentExePath` at that instead of the `.bat`.
 on a real Windows machine** — everything above is a correct-per-spec first
 draft (this is exactly the Phase 0 validation PLAN.md calls out as required
 before relying on it).
+
+## Installing the Agent on macOS (for dev/testing on the machine you're coding on)
+
+```
+apps/agent/installer/install.sh --extension-id <id-from-chrome://extensions> --default-root ~/AI_Projects
+```
+
+This bundles `apps/agent/src/index.ts` (+ `@ai-asset-saver/shared`) into a
+single self-contained file via esbuild (`apps/agent/build-bundle.mjs` →
+`dist-bundle/agent.mjs`, no `node_modules` needed at runtime), installs it to
+`~/Library/Application Support/AIAssetSaver/bin/`, writes the
+native-messaging-host manifest to
+`~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`, and seeds
+`~/.config/AIAssetSaver/config.json` the same way `install.ps1` does on
+Windows. Re-run it any time Agent source changes.
+
+**Important macOS-specific pitfall (found and fixed during real testing):** if
+this repo lives under `~/Desktop`, `~/Documents`, or `~/Downloads`, Chrome's
+native-messaging child process gets a silent `file-read-data` **sandbox
+denial** (macOS TCC's folder-protection) trying to read anything under those
+folders — unless the user has manually granted Chrome access in **System
+Settings → Privacy & Security → Files and Folders**. This surfaces as the
+unhelpful `chrome.runtime.lastError` message *"Native Messaging host
+disconnected: Native host has exited."*, with the Agent's log file never even
+getting a "starting" line — because the process is killed before it can run at
+all. Confirmed via `log show --predicate 'eventMessage CONTAINS "AIAssetSaver"'`
+showing `kernel: (Sandbox) System Policy: bash(...) deny(1) file-read-data
+.../Desktop/.../AIAssetSaverAgent.sh`. Installing the bundled artifact under
+`~/Library/Application Support/` (not Desktop/Documents/Downloads) avoids
+needing that permission grant at all — this is why `install.sh` copies the
+bundle out of the repo rather than pointing the manifest directly at a script
+inside it.
+
+Also note: `AIAssetSaverAgent.sh`'s wrapper script explicitly prepends
+`/opt/homebrew/bin:/usr/local/bin` to `PATH` — Chrome launches it as a GUI-app
+child process with a minimal PATH that doesn't include Homebrew, so `node`
+wouldn't otherwise be found.
+
+### Debugging on macOS
+
+Same idea as Windows — the Agent has no visible console, so tail the log:
+
+```
+tail -f ~/.config/AIAssetSaver/agent.log
+```
+
+and check the background service worker's console via `chrome://extensions` →
+"service worker" → Console, same as on Windows.

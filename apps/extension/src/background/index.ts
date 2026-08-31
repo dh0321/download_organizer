@@ -1,19 +1,37 @@
-// Background service worker entrypoint — wires session state, source detection,
-// job management, native messaging, and notifications together. See PLAN.md §C/§D.
+// Background service worker entrypoint — wires session state (now just AI
+// Session + Batch Defaults, §2/§8), Pending Asset registration, native
+// messaging, and the Organize flow together. See the Download → Inbox →
+// Edit → Organize plan.
+//
+// IMPORTANT: every chrome.*.addListener(...) call in this file happens
+// synchronously during the module's top-level evaluation — none of them are
+// behind an `await`. MV3 only guarantees an event isn't missed if the listener
+// was registered before the service worker's initial script evaluation
+// finishes; registering a listener inside an async function that hasn't
+// resolved yet leaves a real gap where an early message/download/click can
+// arrive with no listener present.
 
 import type { NamingFields } from "@ai-asset-saver/shared";
-import { loadSessionState, saveSessionState, DEFAULT_SESSION_STATE } from "./sessionManager.js";
+import { loadSessionState, DEFAULT_SESSION_STATE } from "./sessionManager.js";
 import { JobManager } from "./jobManager.js";
 import { IntentPingStore } from "./intentPingStore.js";
 import { NativeClient } from "./nativeClient.js";
 import { registerDownloadListeners } from "./downloadListener.js";
-import { notifyJobsUpdated, notifyError } from "./notifier.js";
+import { runOrganizeFlow } from "./organizeFlow.js";
+import { notifyOrganizeResult, notifyError } from "./notifier.js";
+import { loadPendingAssets, persistPendingAssets } from "./pendingAssetsStorage.js";
 import { SESSION_STORAGE_KEY, INDEX_COUNTERS_STORAGE_KEY } from "./storageKeys.js";
-
-let cachedRootForDisplay = "";
 
 const intentPingStore = new IntentPingStore();
 const nativeClient = new NativeClient();
+
+// A synchronous, in-memory mirror of SessionState kept up to date via the
+// storage listener below — onDeterminingFilename must read this synchronously
+// (no await), per §F hard-boundary requirement.
+let sessionSnapshotCache = DEFAULT_SESSION_STATE;
+void loadSessionState().then((s) => {
+  sessionSnapshotCache = s;
+});
 
 async function loadPersistedIndexCounters(): Promise<Record<string, number>> {
   const result = await chrome.storage.local.get(INDEX_COUNTERS_STORAGE_KEY);
@@ -21,159 +39,174 @@ async function loadPersistedIndexCounters(): Promise<Record<string, number>> {
 }
 
 function persistIndexCounters(snapshot: Record<string, number>): void {
-  // Fire-and-forget on purpose — never awaited from inside detectJob (§F-1).
+  // Fire-and-forget on purpose — never awaited from inside reserveIndexForOrganize (§F-1).
   void chrome.storage.local.set({ [INDEX_COUNTERS_STORAGE_KEY]: snapshot });
 }
 
-async function main(): Promise<void> {
-  const jobManager = await JobManager.create({
-    loadPersistedIndexCounters,
-    persistIndexCounters,
-    generateJobId: () => crypto.randomUUID(),
-  });
-
-  // Best-effort: refresh the display-only Settings cache from the Agent (§F-2 —
-  // this value is never used for actual routing, only for the popup's preview).
-  nativeClient
-    .send({ type: "get-settings" })
-    .then((res) => {
-      if (res.type === "get-settings-result") cachedRootForDisplay = res.settings.defaultRoot;
-    })
-    .catch(() => {
-      // Agent not running yet — popup's <AgentStatusBadge> surfaces this; no toast needed on startup.
-    });
-
-  registerDownloadListeners({
-    jobManager,
-    intentPingStore,
-    getSession: () => sessionSnapshotCache,
-    getCachedRootForDisplay: () => cachedRootForDisplay,
-    onJobDetected: () => {
-      // Nothing extra to do here yet — completion is handled in onDownloadComplete.
-    },
-    onDownloadComplete: (jobId) => handleDownloadComplete(jobManager, jobId),
-    onDownloadCancelled: () => notifyJobsUpdated(jobManager),
-  });
-
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === "aias-intent-ping") {
-      intentPingStore.record(message.origin, message.timestamp);
-      return; // no response expected
-    }
-
-    if (message?.type === "aias-get-display-settings") {
-      // Popup preview only — never the source of truth for routing (§F-2).
-      nativeClient
-        .send({ type: "get-settings" })
-        .then((res) => {
-          if (res.type === "get-settings-result") {
-            cachedRootForDisplay = res.settings.defaultRoot;
-            sendResponse({ ok: true, settings: res.settings });
-          } else {
-            sendResponse({ ok: false, error: "unexpected response" });
-          }
-        })
-        .catch((err) => sendResponse({ ok: false, error: String(err) }));
-      return true; // keep the message channel open for the async sendResponse
-    }
-
-    if (message?.type === "aias-set-default-root") {
-      nativeClient
-        .send({ type: "get-settings" })
-        .then((current) => {
-          if (current.type !== "get-settings-result") throw new Error("unexpected response");
-          return nativeClient.send({
-            type: "sync-settings",
-            settings: { ...current.settings, defaultRoot: message.root },
-          });
-        })
-        .then(() => {
-          cachedRootForDisplay = message.root;
-          sendResponse({ ok: true });
-        })
-        .catch((err) => sendResponse({ ok: false, error: String(err) }));
-      return true;
-    }
-
-    if (message?.type === "aias-ping-agent") {
-      nativeClient
-        .send({ type: "ping" }, 3000)
-        .then(() => sendResponse({ connected: true }))
-        .catch(() => sendResponse({ connected: false }));
-      return true;
-    }
-  });
-
-  chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === "local" && changes[SESSION_STORAGE_KEY]) {
-      sessionSnapshotCache = { ...DEFAULT_SESSION_STATE, ...changes[SESSION_STORAGE_KEY].newValue };
-    }
-  });
-}
-
-// A synchronous, in-memory mirror of SessionState kept up to date via the storage
-// listener above — onDeterminingFilename must read this synchronously (no await),
-// per §F-1's race-freedom requirement.
-let sessionSnapshotCache = DEFAULT_SESSION_STATE;
-loadSessionState().then((s) => {
-  sessionSnapshotCache = s;
+// Created synchronously (not awaited here) — see downloadListener.ts for how
+// listeners registered before this resolves still handle events correctly.
+const jobManagerPromise: Promise<JobManager> = JobManager.create({
+  loadPendingAssets,
+  persistPendingAssets,
+  loadPersistedIndexCounters,
+  persistIndexCounters,
+  generateJobId: () => crypto.randomUUID(),
 });
 
-async function handleDownloadComplete(jobManager: JobManager, jobId: string): Promise<void> {
-  const job = jobManager.get(jobId);
-  if (!job) return;
-
-  const [item] = await chrome.downloads.search({ id: job.browserDownloadId });
-  if (!item) {
-    jobManager.setStatus(jobId, "failed", "Download item disappeared before it could be routed");
-    notifyJobsUpdated(jobManager);
-    return;
-  }
-
-  jobManager.setStatus(jobId, "moving");
-  notifyJobsUpdated(jobManager);
-
-  const naming: NamingFields = {
-    project: job.sessionSnapshot.project,
-    sequence: job.sessionSnapshot.sequence,
-    shot: job.sessionSnapshot.shot,
-    bucketId: job.sessionSnapshot.bucketId,
-    description: job.sessionSnapshot.description,
-    namingPresetId: job.sessionSnapshot.namingPresetId,
-    namingTemplate: "{shot}_{type}_{description}_{index}", // Phase 1: single built-in preset (§O)
-    customFilenameEnabled: job.sessionSnapshot.customFilenameEnabled,
-    customFilename: job.sessionSnapshot.customFilename,
-  };
-
-  try {
-    const response = await nativeClient.send({
-      type: "route-file",
-      jobId,
-      sourcePath: item.filename, // absolute path, resolved by Chrome within the Downloads dir (§C)
-      extension: job.extension,
-      mediaType: job.mediaType,
-      reservedIndex: job.reservedIndex,
-      naming,
-    });
-
-    if (response.type !== "route-file-result") return; // protocol mismatch — should never happen
-
-    if (response.ok) {
-      const finalFilename = response.finalPath.split(/[\\/]/).pop() ?? job.originalFilename;
-      jobManager.setResult(jobId, response.finalPath, finalFilename);
-      // Clean up the staged Downloads-dir entry now that the real file exists (§O Phase 0 open question).
-      void chrome.downloads.erase({ id: job.browserDownloadId });
-    } else {
-      jobManager.setStatus(jobId, "failed", `${response.code}: ${response.error}`);
-    }
-  } catch (err) {
-    jobManager.setStatus(jobId, "failed", `Agent unreachable: ${(err as Error).message}`);
-    notifyError("Local Agent not running", "Couldn't save this file — open the Agent and retry from Recent Activity.");
-  }
-
-  notifyJobsUpdated(jobManager);
+function updateBadge(jm: JobManager): void {
+  const count = jm.organizableAssets().length;
+  void chrome.action.setBadgeText({ text: count > 0 ? String(count) : "" });
+  void chrome.action.setBadgeBackgroundColor({ color: "#18181b" });
 }
 
-main().catch((err) => {
-  console.error("AI Asset Saver background init failed:", err);
+void jobManagerPromise.then(updateBadge); // restore the badge after a browser/SW restart
+
+/** A brand-new Pending Asset starts pre-filled from the current Batch
+ * Defaults (§8) — Shot/Description start empty (only ever set per-asset) and
+ * Custom Folder/Filename start off (Auto). */
+function buildDefaultNaming(): NamingFields {
+  return {
+    project: sessionSnapshotCache.batchDefaultProject,
+    sequence: sessionSnapshotCache.batchDefaultSequence,
+    shot: "",
+    bucketId: sessionSnapshotCache.batchDefaultBucketId,
+    description: "",
+    namingPresetId: "default",
+    namingTemplate: "{shot}_{type}_{description}_{index}", // Phase 1: single built-in preset (§O)
+    customFilenameEnabled: false,
+    customFilename: "",
+    customDirectoryEnabled: false,
+    customDirectory: "",
+  };
+}
+
+registerDownloadListeners({
+  jobManagerPromise,
+  intentPingStore,
+  getSession: () => sessionSnapshotCache,
+  buildDefaultNaming,
+  onAssetRegistered: () => {
+    void jobManagerPromise.then(updateBadge);
+  },
+});
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "aias-intent-ping") {
+    intentPingStore.record(message.origin, message.timestamp);
+    return; // no response expected
+  }
+
+  if (message?.type === "aias-get-display-settings") {
+    // Inbox's Default Root display only — never the source of truth for routing (§F-2).
+    nativeClient
+      .send({ type: "get-settings" })
+      .then((res) => {
+        if (res.type === "get-settings-result") {
+          sendResponse({ ok: true, settings: res.settings });
+        } else {
+          sendResponse({ ok: false, error: "unexpected response" });
+        }
+      })
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true; // keep the message channel open for the async sendResponse
+  }
+
+  if (message?.type === "aias-set-default-root") {
+    nativeClient
+      .send({ type: "get-settings" })
+      .then((current) => {
+        if (current.type !== "get-settings-result") throw new Error("unexpected response");
+        return nativeClient.send({
+          type: "sync-settings",
+          settings: { ...current.settings, defaultRoot: message.root },
+        });
+      })
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (message?.type === "aias-ping-agent") {
+    nativeClient
+      .send({ type: "ping" }, 3000)
+      .then(() => sendResponse({ connected: true }))
+      .catch(() => sendResponse({ connected: false }));
+    return true;
+  }
+
+  if (message?.type === "aias-pick-directory") {
+    // Long timeout: this is waiting on a human clicking through a native OS
+    // dialog, not a normal fast round-trip.
+    nativeClient
+      .send({ type: "pick-directory" }, 5 * 60 * 1000)
+      .then((res) => {
+        if (res.type === "pick-directory-result") sendResponse(res);
+        else sendResponse({ type: "pick-directory-result", ok: false, error: "unexpected response" });
+      })
+      .catch((err) => sendResponse({ type: "pick-directory-result", ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (message?.type === "aias-update-naming") {
+    void jobManagerPromise.then((jm) => {
+      jm.updateNaming(message.id, message.patch);
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message?.type === "aias-update-source") {
+    void jobManagerPromise.then((jm) => {
+      jm.updateSource(message.id, message.source);
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message?.type === "aias-set-selected") {
+    void jobManagerPromise.then((jm) => {
+      jm.setSelected(message.id, message.selected);
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message?.type === "aias-set-all-selected") {
+    void jobManagerPromise.then((jm) => {
+      jm.setAllSelected(message.selected);
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message?.type === "aias-apply-defaults-to-selected") {
+    void jobManagerPromise.then((jm) => {
+      jm.applyDefaultsToSelected(message.defaults);
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message?.type === "aias-organize") {
+    void jobManagerPromise.then(async (jm) => {
+      const result = await runOrganizeFlow(
+        { jobManager: jm, sendToAgent: (req) => nativeClient.send(req) },
+        message.ids,
+      );
+      updateBadge(jm);
+      if (result.ok && result.results) {
+        notifyOrganizeResult(result.results);
+      } else if (!result.ok) {
+        notifyError("Couldn't organize assets", result.error ?? "Unknown error");
+      }
+      sendResponse(result);
+    });
+    return true;
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes[SESSION_STORAGE_KEY]) {
+    sessionSnapshotCache = { ...DEFAULT_SESSION_STATE, ...changes[SESSION_STORAGE_KEY].newValue };
+  }
 });

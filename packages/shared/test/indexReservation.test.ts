@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { IndexReservationCounter, buildIndexKey } from "../src/indexReservation.js";
+import { IndexReservationCounter, buildIndexKey, buildIndexKeyForCustomDirectory } from "../src/indexReservation.js";
 
 describe("IndexReservationCounter", () => {
   it("assigns unique, sequential indices for 5 near-simultaneous reservations on the same key", () => {
@@ -60,5 +60,32 @@ describe("IndexReservationCounter", () => {
 
     const restarted = new IndexReservationCounter(snapshot);
     expect(restarted.reserveNext(key)).toBe(3);
+  });
+});
+
+describe("buildIndexKeyForCustomDirectory", () => {
+  it("gives different directories different keys", () => {
+    const counter = new IndexReservationCounter();
+    const keyA = buildIndexKeyForCustomDirectory("ClientA\\ReviewBatch2", "image");
+    const keyB = buildIndexKeyForCustomDirectory("ClientB\\ReviewBatch2", "image");
+
+    expect(counter.reserveNext(keyA)).toBe(1);
+    expect(counter.reserveNext(keyB)).toBe(1);
+    expect(counter.reserveNext(keyA)).toBe(2);
+  });
+
+  it("is case-insensitive and whitespace-trimmed, like buildIndexKey", () => {
+    expect(buildIndexKeyForCustomDirectory("ClientA\\Batch", "IMAGE")).toBe(
+      buildIndexKeyForCustomDirectory("  clienta\\batch  ", "image"),
+    );
+  });
+
+  it("never collides with a structured buildIndexKey for the same-looking string", () => {
+    // Namespaced with a "custom-dir:" prefix so a custom directory literally
+    // named e.g. "generated" can't accidentally share a counter with a
+    // project/sequence/shot/bucket combination that produces the same text.
+    const structured = buildIndexKey({ project: "a", sequence: "", shot: "", bucketId: "generated", mediaType: "image" });
+    const custom = buildIndexKeyForCustomDirectory("a||generated", "image");
+    expect(structured).not.toBe(custom);
   });
 });

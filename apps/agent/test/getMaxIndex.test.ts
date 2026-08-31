@@ -34,4 +34,20 @@ describe("getMaxIndex", () => {
     const max = await getMaxIndex(config, { project: "Galaxy_S27", sequence: "", shot: "SH020", bucketId: "generated" });
     expect(max).toBe(10);
   });
+
+  it("scans the custom directory folder when customDirectoryEnabled is set", async () => {
+    const folder = path.join(root, "ClientA", "ReviewBatch2");
+    await mkdir(folder, { recursive: true });
+    await writeFile(path.join(folder, "asset_IMG_005.png"), "x");
+
+    const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
+    const max = await getMaxIndex(config, {
+      project: "",
+      sequence: "",
+      shot: "",
+      customDirectoryEnabled: true,
+      customDirectory: "ClientA\\ReviewBatch2",
+    });
+    expect(max).toBe(5);
+  });
 });

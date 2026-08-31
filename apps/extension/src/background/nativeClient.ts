@@ -162,5 +162,9 @@ function responseTypeFor(requestType: NativeRequest["type"]): NativeResponse["ty
       return "get-max-index-result";
     case "route-file":
       return "route-file-result";
+    case "organize-batch":
+      return "organize-batch-result";
+    case "pick-directory":
+      return "pick-directory-result";
   }
 }

@@ -1,136 +1,195 @@
-// §F-1 job-manager: creates a DownloadJob synchronously at detection time, capturing
-// a SessionSnapshot and reserving an index before any `await` runs — this is what
-// makes concurrent detections race-free (see IndexReservationCounter in
-// @ai-asset-saver/shared for the full argument).
+// §6/§11 Pending Asset store. A download that completes while AI Session is on
+// is registered here as a PendingAsset — nothing is written to disk yet. Index
+// Reservation (§F-1) no longer happens at registration time; it happens once,
+// synchronously, right before an Organize batch is sent to the Agent (see
+// reserveIndexForOrganize) — the same race-free "no `await` mid-loop" technique
+// as before, just invoked from a different trigger point.
 
 import {
   IndexReservationCounter,
   buildIndexKey,
-  type DownloadJob,
-  type DownloadJobStatus,
-  type SessionState,
-  type SessionSnapshot,
+  buildIndexKeyForCustomDirectory,
+  type PendingAsset,
+  type PendingAssetStatus,
+  type NamingFields,
   type MediaType,
 } from "@ai-asset-saver/shared";
 
 export interface JobManagerDeps {
+  loadPendingAssets(): Promise<Record<string, PendingAsset>>;
+  /** Fire-and-forget — every mutating method calls this after updating memory. */
+  persistPendingAssets(assets: Record<string, PendingAsset>): void;
   loadPersistedIndexCounters(): Promise<Record<string, number>>;
-  /** Fire-and-forget — never awaited from inside detectJob (must stay synchronous). */
+  /** Fire-and-forget — never awaited from inside reserveIndexForOrganize (§F-1). */
   persistIndexCounters(snapshot: Record<string, number>): void;
   generateJobId(): string;
 }
 
-export interface DetectJobParams {
+export interface RegisterPendingAssetParams {
   browserDownloadId: number;
+  sourcePath: string;
   originalFilename: string;
   extension: string;
   mediaType: MediaType;
   source: string;
-  session: SessionState;
-  /** display-only cached root, for RecentActivity/audit purposes — never used for
-   * actual routing, which is always the Agent's own live AgentConfig.defaultRoot. */
-  cachedRootForDisplay: string;
+  downloadedAt: number;
+  /** Pre-filled from the current Batch Defaults (§8) at registration time. */
+  naming: NamingFields;
 }
 
-function captureSnapshot(session: SessionState, cachedRootForDisplay: string): SessionSnapshot {
-  return {
-    root: cachedRootForDisplay,
-    project: session.currentProject,
-    sequence: session.currentSequence,
-    shot: session.currentShot,
-    bucketId: session.currentBucketId,
-    description: session.currentDescription,
-    namingPresetId: session.selectedNamingPresetId,
-    customFilenameEnabled: session.customFilenameEnabled,
-    customFilename: session.customFilename,
-  };
+const ORGANIZABLE_STATUSES: PendingAssetStatus[] = ["pending", "failed"];
+
+/** Same key formula Index Reservation has always used (§F-1) — Custom Directory
+ * assets key off the directory string instead of project/sequence/shot/bucket
+ * (see fileRouter.ts's computeCandidatePath for why). Exported so callers
+ * outside JobManager (the Organize flow's get-max-index step) can compute the
+ * same key without duplicating the branch. */
+export function pendingAssetIndexKey(asset: Pick<PendingAsset, "mediaType" | "naming">): string {
+  return asset.naming.customDirectoryEnabled
+    ? buildIndexKeyForCustomDirectory(asset.naming.customDirectory ?? "", asset.mediaType)
+    : buildIndexKey({
+        project: asset.naming.project,
+        sequence: asset.naming.sequence,
+        shot: asset.naming.shot,
+        bucketId: asset.naming.bucketId,
+        mediaType: asset.mediaType,
+      });
 }
 
 export class JobManager {
   private readonly counter: IndexReservationCounter;
-  private readonly jobs = new Map<string, DownloadJob>();
+  private readonly assets = new Map<string, PendingAsset>();
 
   private constructor(
     private readonly deps: JobManagerDeps,
+    initialAssets: Record<string, PendingAsset>,
     initialCounters: Record<string, number>,
   ) {
     this.counter = new IndexReservationCounter(initialCounters);
+    for (const [id, asset] of Object.entries(initialAssets)) this.assets.set(id, asset);
   }
 
   static async create(deps: JobManagerDeps): Promise<JobManager> {
-    const initial = await deps.loadPersistedIndexCounters();
-    return new JobManager(deps, initial);
+    const [assets, counters] = await Promise.all([deps.loadPendingAssets(), deps.loadPersistedIndexCounters()]);
+    return new JobManager(deps, assets, counters);
   }
 
-  /**
-   * Must be called synchronously from within the onDeterminingFilename handler,
-   * with no `await` beforehand — this is the entire race-freedom guarantee (§F-1).
-   */
-  detectJob(params: DetectJobParams): DownloadJob {
-    const snapshot = captureSnapshot(params.session, params.cachedRootForDisplay);
+  private persist(): void {
+    this.deps.persistPendingAssets(Object.fromEntries(this.assets.entries()));
+  }
 
-    const key = buildIndexKey({
-      project: snapshot.project,
-      sequence: snapshot.sequence,
-      shot: snapshot.shot,
-      bucketId: snapshot.bucketId,
-      mediaType: params.mediaType,
-    });
-    const reservedIndex = this.counter.reserveNext(key);
-    this.deps.persistIndexCounters(this.counter.snapshot()); // async persistence, not awaited here
-
-    const job: DownloadJob = {
+  registerPendingAsset(params: RegisterPendingAssetParams): PendingAsset {
+    const asset: PendingAsset = {
       id: this.deps.generateJobId(),
       browserDownloadId: params.browserDownloadId,
+      sourcePath: params.sourcePath,
       originalFilename: params.originalFilename,
       extension: params.extension,
       mediaType: params.mediaType,
       source: params.source,
-      detectedAt: Date.now(),
-      sessionSnapshot: snapshot,
-      reservedIndex,
-      status: "detected",
+      downloadedAt: params.downloadedAt,
+      status: "pending",
+      selected: true,
+      naming: params.naming,
     };
-
-    this.jobs.set(job.id, job);
-    return job;
+    this.assets.set(asset.id, asset);
+    this.persist();
+    return asset;
   }
 
-  get(jobId: string): DownloadJob | undefined {
-    return this.jobs.get(jobId);
+  get(id: string): PendingAsset | undefined {
+    return this.assets.get(id);
   }
 
-  getByBrowserDownloadId(browserDownloadId: number): DownloadJob | undefined {
-    for (const job of this.jobs.values()) {
-      if (job.browserDownloadId === browserDownloadId) return job;
+  getByBrowserDownloadId(browserDownloadId: number): PendingAsset | undefined {
+    for (const asset of this.assets.values()) {
+      if (asset.browserDownloadId === browserDownloadId) return asset;
     }
     return undefined;
   }
 
+  allPendingAssets(): PendingAsset[] {
+    return Array.from(this.assets.values());
+  }
+
+  /** Assets still eligible for editing/Organize — excludes "organizing" (in
+   * flight) and "organized" (done) so a finished item never reappears as if
+   * still pending. */
+  organizableAssets(): PendingAsset[] {
+    return this.allPendingAssets().filter((a) => ORGANIZABLE_STATUSES.includes(a.status));
+  }
+
+  updateNaming(id: string, patch: Partial<NamingFields>): void {
+    const asset = this.assets.get(id);
+    if (!asset) return;
+    asset.naming = { ...asset.naming, ...patch };
+    this.persist();
+  }
+
+  /** Lets the user correct/override the auto-detected source (e.g. "chatgpt")
+   * directly — distinct from updateNaming since `source` lives on the
+   * PendingAsset itself, not inside its `naming` sub-object (§ Source token). */
+  updateSource(id: string, source: string): void {
+    const asset = this.assets.get(id);
+    if (!asset) return;
+    asset.source = source;
+    this.persist();
+  }
+
+  setSelected(id: string, selected: boolean): void {
+    const asset = this.assets.get(id);
+    if (!asset) return;
+    asset.selected = selected;
+    this.persist();
+  }
+
+  setAllSelected(selected: boolean): void {
+    for (const asset of this.assets.values()) {
+      if (ORGANIZABLE_STATUSES.includes(asset.status)) asset.selected = selected;
+    }
+    this.persist();
+  }
+
+  /** §8 Batch Edit UX: explicit bulk overwrite, only ever triggered by the user
+   * clicking "Apply defaults to selected" — Batch Defaults changes never
+   * silently propagate to already-listed assets any other way. */
+  applyDefaultsToSelected(defaults: { project: string; sequence: string; bucketId: string }): void {
+    for (const asset of this.assets.values()) {
+      if (!asset.selected || !ORGANIZABLE_STATUSES.includes(asset.status)) continue;
+      asset.naming = { ...asset.naming, ...defaults };
+    }
+    this.persist();
+  }
+
   /**
-   * Transitions a job's status. Each job's status is independent of every other
-   * job's (§F-1 Failure Isolation) — this never touches any job but the one named.
+   * Each asset's status is independent of every other asset's (§F-1 Failure
+   * Isolation) — this never touches any asset but the one named.
    */
-  setStatus(jobId: string, status: DownloadJobStatus, error?: string): void {
-    const job = this.jobs.get(jobId);
-    if (!job) return;
-    job.status = status;
-    if (error !== undefined) job.error = error;
+  setStatus(id: string, status: PendingAssetStatus, errorMessage?: string): void {
+    const asset = this.assets.get(id);
+    if (!asset) return;
+    asset.status = status;
+    asset.errorMessage = errorMessage;
+    this.persist();
   }
 
-  setResult(jobId: string, finalPath: string, finalFilename: string): void {
-    const job = this.jobs.get(jobId);
-    if (!job) return;
-    job.destinationPath = finalPath;
-    job.finalFilename = finalFilename;
-    job.status = "saved";
+  /** Organize flow step: fold the Agent's real on-disk max index (from
+   * get-max-index) into the in-memory counter as a lower bound, before any
+   * reservation happens for that key. */
+  reconcileIndexFloor(key: string, agentReportedMax: number): void {
+    this.counter.reconcile(key, agentReportedMax);
   }
 
-  allJobs(): DownloadJob[] {
-    return Array.from(this.jobs.values());
-  }
-
-  activeJobCount(): number {
-    return this.allJobs().filter((j) => !["saved", "failed", "cancelled"].includes(j.status)).length;
+  /**
+   * §11 Organize Flow step 2: must be called synchronously (no `await` between
+   * calls) once per selected asset, after every distinct key's floor has
+   * already been reconciled via reconcileIndexFloor — this preserves the exact
+   * race-freedom technique index reservation has always used (§F-1), just
+   * triggered by the Organize click instead of by download detection.
+   */
+  reserveIndexForOrganize(asset: PendingAsset): number {
+    const index = this.counter.reserveNext(pendingAssetIndexKey(asset));
+    this.deps.persistIndexCounters(this.counter.snapshot());
+    return index;
   }
 }
