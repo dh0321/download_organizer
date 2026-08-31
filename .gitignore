@@ -1,0 +1,9 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Agent local runtime state — never commit a real Default Root/config from a dev run
+apps/agent/*.log
+
+# OS
+.DS_Store
