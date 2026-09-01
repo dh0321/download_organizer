@@ -132,6 +132,19 @@ describe("JobManager (Pending Asset store)", () => {
     expect(persistedAssets.at(-1)?.[asset.id].source).toBe("gemini");
   });
 
+  it("setSelectedByIds only touches the given ids, so a filtered 'Select all' never selects hidden assets", async () => {
+    const { deps } = makeDeps();
+    const manager = await JobManager.create(deps);
+    const a = register(manager, { browserDownloadId: 1 });
+    const b = register(manager, { browserDownloadId: 2 });
+    const c = register(manager, { browserDownloadId: 3 });
+    manager.setSelectedByIds([a.id, b.id], false);
+
+    expect(manager.get(a.id)?.selected).toBe(false);
+    expect(manager.get(b.id)?.selected).toBe(false);
+    expect(manager.get(c.id)?.selected).toBe(true);
+  });
+
   it("excludes organized/organizing assets from organizableAssets()", async () => {
     const { deps } = makeDeps();
     const manager = await JobManager.create(deps);

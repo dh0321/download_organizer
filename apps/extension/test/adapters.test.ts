@@ -140,6 +140,34 @@ describe("findMatchingAdapter (registry)", () => {
     const found = findMatchingAdapter({ url: "https://example.org/report.pdf" });
     expect(found).toBeUndefined();
   });
+
+  it("finds the Gemini adapter for a Google AI Studio download (Nano Banana's other access path)", () => {
+    const now = Date.now();
+    const found = findMatchingAdapter({
+      url: "https://aistudio.google.com/some/asset",
+      recentIntentPing: { origin: "https://aistudio.google.com", timestamp: now - 100 },
+    });
+    expect(found?.id).toBe(geminiAdapter.id);
+  });
+
+  // One representative host per newly-added adapter (§ "general download
+  // manager" scope widening — domains verified via web search before adding).
+  it.each([
+    ["higgsfield", "https://higgsfield.ai/generate/1"],
+    ["seedance", "https://dreamina.capcut.com/seedance/asset"],
+    ["midjourney", "https://midjourney.com/jobs/1"],
+    ["leonardo", "https://leonardo.ai/generations/1"],
+    ["krea", "https://krea.ai/create/1"],
+    ["runway", "https://app.runwayml.com/tasks/1"],
+    ["kling", "https://kling.ai/videos/1"],
+    ["firefly", "https://firefly.adobe.com/generate/1"],
+    ["xianchou", "https://xianchou.com/works/1"],
+  ])("finds the %s adapter for its own host with a recent ping", (id, url) => {
+    const now = Date.now();
+    const origin = new URL(url).origin;
+    const found = findMatchingAdapter({ url, recentIntentPing: { origin, timestamp: now - 100 } });
+    expect(found?.id).toBe(id);
+  });
 });
 
 describe("mediaTypeForExtension", () => {

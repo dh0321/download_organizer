@@ -14,8 +14,11 @@ import {
 import { loadSessionState, saveSessionState, DEFAULT_SESSION_STATE } from "../background/sessionManager.js";
 import { loadPendingAssets } from "../background/pendingAssetsStorage.js";
 import { pendingAssetIndexKey } from "../background/jobManager.js";
+import type { RescanCandidate } from "../background/rescanDownloads.js";
+import { adapters } from "../adapters/registry.js";
 import { PENDING_ASSETS_STORAGE_KEY, SESSION_STORAGE_KEY, INDEX_COUNTERS_STORAGE_KEY } from "../background/storageKeys.js";
 import { AgentBadge, type AgentStatus } from "../components/AgentBadge.js";
+import { Combobox } from "../components/Combobox.js";
 import { Field } from "../components/Field.js";
 import { Segmented } from "../components/Segmented.js";
 import "../styles/theme.css";
@@ -23,8 +26,12 @@ import "../styles/theme.css";
 const DEFAULT_BUCKETS: AssetBucket[] = [
   { id: "generated", label: "Generated", order: 0 },
   { id: "reference", label: "Reference", order: 1 },
-  { id: "select", label: "Select", order: 2 },
-  { id: "final", label: "Final", order: 3 },
+  { id: "character", label: "Character", order: 2 },
+  { id: "environment", label: "Environment", order: 3 },
+  { id: "prop", label: "Prop", order: 4 },
+  { id: "turntable", label: "Turntable", order: 5 },
+  { id: "concept", label: "Concept", order: 6 },
+  { id: "final", label: "Final", order: 7 },
 ];
 
 const ORGANIZABLE = new Set(["pending", "failed"]);
@@ -35,13 +42,14 @@ const ORGANIZABLE = new Set(["pending", "failed"]);
 // string client-side from whichever tokens are active. Fixed reading order
 // (shot, description, source, index) regardless of toggle order.
 const NAMING_TOKENS = [
-  { key: "shot", label: "Shot" },
+  { key: "shot", label: "Name" },
   { key: "description", label: "Description" },
   { key: "source", label: "Source" },
   { key: "index", label: "Index" },
 ] as const;
 
-const SOURCE_SUGGESTIONS = ["ChatGPT", "Gemini"];
+const SOURCE_SUGGESTIONS = adapters.map((a) => a.label);
+const CATEGORY_SUGGESTIONS = ["Generated", "Reference", "Character", "Environment", "Prop", "Turntable", "Concept", "Final"];
 
 function activeNamingTokens(template: string): Set<string> {
   return new Set(NAMING_TOKENS.filter((t) => template.includes(`{${t.key}}`)).map((t) => t.key));
@@ -53,8 +61,29 @@ function buildTemplateFromTokens(tokens: Set<string>): string {
     .join("_");
 }
 
+// "en-US" is pinned explicitly everywhere below (not the browser/OS default
+// locale) so date/time text is always plain English regardless of the user's
+// system language — otherwise e.g. AM/PM and month names render in whatever
+// locale the OS happens to be set to.
 function formatTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(ms).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatDateTime(ms: number): string {
+  const date = new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return `${date}, ${formatTime(ms)}`;
+}
+
+/** Stable per-local-day grouping key for the Rescan picker (§3-3) — distinct
+ * from the human-readable label so a group's identity doesn't depend on
+ * locale-formatting details. */
+function dayKey(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function dayLabel(ms: number): string {
+  return new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 /**
@@ -70,12 +99,34 @@ function formatTime(ms: number): string {
  * fullPathPreview keeps the full Root+folder+filename absolute form, for the
  * card's bottom summary line, which is unaffected by any of this.
  */
+/** Strips stray leading/trailing "\" or "/" from a single segment value —
+ * defensive against a raw naming field (Project/Sequence/Shot/Category) that
+ * happens to contain one (e.g. pasted from a path), which would otherwise
+ * show up as a doubled separator once joined with its neighbors. The real
+ * Organize operation already sanitizes every segment on the Agent side
+ * (sanitizeSegment strips slashes entirely); this is the client-preview
+ * equivalent, kept separate since preview text also needs to stay readable
+ * pre-sanitization. */
+function stripSeparators(s: string): string {
+  return s.replace(/^[\\/]+|[\\/]+$/g, "");
+}
+
+/** Only strips the trailing separator — Default Root is a single absolute
+ * path, not a segment, so a leading "/" (or a bare drive letter) must be
+ * preserved. Fixes the "//" that appeared when Default Root itself ended in
+ * a separator (e.g. typed/copied with a trailing slash, or a drive root like
+ * "D:\"). */
+function stripTrailingSeparator(s: string): string {
+  return s.replace(/[\\/]+$/, "");
+}
+
 function computePreview(
   asset: PendingAsset,
   defaultRoot: string,
   indexCounters: Record<string, number>,
   buckets: AssetBucket[],
-): { folderRelativePreview: string; filenameBasePreview: string; fullPathPreview: string } {
+  pathSep: "\\" | "/",
+): { folderRelativePreview: string; folderFullPreview: string; filenameBasePreview: string; fullPathPreview: string } {
   const bucketLabel = buckets.find((b) => b.id === asset.naming.bucketId)?.label ?? asset.naming.bucketId ?? "";
 
   let folderSegments: string[] = [];
@@ -90,16 +141,20 @@ function computePreview(
         folderMessage = "(invalid folder — check for unsupported characters)";
       }
     }
-  } else if (!asset.naming.project.trim()) {
-    folderMessage = "(set Project in Batch Defaults)";
   } else {
-    folderSegments = [asset.naming.project, asset.naming.sequence, asset.naming.shot, bucketLabel].filter(Boolean);
+    // Project/Sequence/Shot/Category are all optional (§ Workspace scope
+    // widening) — any or all may be blank, in which case the file just lands
+    // one level higher. An entirely empty result is a valid "save straight
+    // into Default Root" state, not an error.
+    folderSegments = [asset.naming.project, asset.naming.sequence, asset.naming.shot, bucketLabel]
+      .map(stripSeparators)
+      .filter(Boolean);
   }
 
-  const folderRelativePreview = folderMessage ?? folderSegments.join("\\");
+  const folderRelativePreview = folderMessage ?? (folderSegments.length ? folderSegments.join(pathSep) : "(root)");
   const folderFullPreview = !defaultRoot
     ? "(set a Default Root)"
-    : (folderMessage ?? [defaultRoot, ...folderSegments].join("\\"));
+    : (folderMessage ?? [stripTrailingSeparator(defaultRoot), ...folderSegments].join(pathSep));
 
   const previewIndex = (indexCounters[pendingAssetIndexKey(asset)] ?? 0) + 1;
 
@@ -132,8 +187,31 @@ function computePreview(
     : filenameFullPreview;
 
   const fullPathPreview =
-    !defaultRoot || folderMessage ? folderFullPreview : `${folderFullPreview}\\${filenameFullPreview}`;
-  return { folderRelativePreview, filenameBasePreview, fullPathPreview };
+    !defaultRoot || folderMessage ? folderFullPreview : `${folderFullPreview}${pathSep}${filenameFullPreview}`;
+  return { folderRelativePreview, folderFullPreview, filenameBasePreview, fullPathPreview };
+}
+
+/**
+ * Custom Directory is structurally Root-relative (see splitCustomDirectorySegments)
+ * — so a folder chosen via the native OS picker (which returns an absolute path)
+ * must be re-expressed relative to Default Root before it can be stored. Returns
+ * null when `picked` isn't actually inside `root` at all (caller shows an error
+ * and refuses the value, rather than guessing). Case-insensitive prefix compare
+ * matches the same Windows-filesystem assumption `isWithinRoot` makes on the
+ * Agent side (apps/agent/src/fileRouter.ts) — this is the client-side mirror of
+ * that check, purely for a friendly error message before ever sending anything.
+ */
+function relativeToRoot(picked: string, root: string): string | null {
+  const stripTrailingSep = (p: string) => p.replace(/[\\/]+$/, "");
+  const normPicked = stripTrailingSep(picked);
+  const normRoot = stripTrailingSep(root);
+  if (normPicked.toLowerCase() === normRoot.toLowerCase()) return "";
+  const lowerPicked = normPicked.toLowerCase();
+  const lowerRoot = normRoot.toLowerCase();
+  if (lowerPicked.startsWith(`${lowerRoot}/`) || lowerPicked.startsWith(`${lowerRoot}\\`)) {
+    return normPicked.slice(normRoot.length + 1);
+  }
+  return null;
 }
 
 /**
@@ -152,6 +230,12 @@ function Thumbnail({ asset }: { asset: PendingAsset }) {
   const [errored, setErrored] = useState(false);
 
   useEffect(() => {
+    // A Rescan-via-folder-scan asset has no real chrome.downloads id (see
+    // PendingAsset.browserDownloadId) — fall straight to the generic icon.
+    if (asset.browserDownloadId == null) {
+      setErrored(true);
+      return;
+    }
     chrome.downloads.getFileIcon(asset.browserDownloadId, { size: 32 }, (url) => {
       if (chrome.runtime.lastError || !url) {
         setErrored(true);
@@ -181,6 +265,118 @@ function STATUS_LABEL(status: PendingAsset["status"]): string {
   }
 }
 
+/** Rescan picker (§3-3) — grouped by local day so a large backlog is scannable
+ * instead of one flat list; only the most recent day starts expanded. */
+function RescanImportModal({
+  candidates,
+  selectedIds,
+  expandedDays,
+  importing,
+  onToggleSelected,
+  onToggleDay,
+  onToggleDayExpanded,
+  onSelectAll,
+  onCancel,
+  onConfirm,
+}: {
+  candidates: RescanCandidate[];
+  selectedIds: Set<string>;
+  expandedDays: Set<string>;
+  importing: boolean;
+  onToggleSelected: (id: string, next: boolean) => void;
+  onToggleDay: (ids: string[], next: boolean) => void;
+  onToggleDayExpanded: (key: string) => void;
+  onSelectAll: (next: boolean) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const groups = useMemo(() => {
+    const byKey = new Map<string, { key: string; label: string; items: RescanCandidate[] }>();
+    for (const c of candidates) {
+      const key = dayKey(c.downloadedAt);
+      if (!byKey.has(key)) byKey.set(key, { key, label: dayLabel(c.downloadedAt), items: [] });
+      byKey.get(key)!.items.push(c);
+    }
+    return Array.from(byKey.values()).sort((a, b) => b.items[0].downloadedAt - a.items[0].downloadedAt);
+  }, [candidates]);
+
+  const allSelected = candidates.length > 0 && candidates.every((c) => selectedIds.has(c.sourcePath));
+
+  return (
+    <div className="aias-modal-overlay">
+      <div className="aias-modal-card">
+        <div className="aias-row">
+          <p className="aias-card-title" style={{ margin: 0 }}>
+            Import from Downloads · {candidates.length} found
+          </p>
+          <button className="aias-btn aias-btn-ghost aias-btn-sm" onClick={() => onSelectAll(!allSelected)}>
+            {allSelected ? "Deselect all" : "Select all"}
+          </button>
+        </div>
+        <div className="aias-divider" />
+
+        <div className="aias-modal-list">
+          {groups.map((group) => {
+            const expanded = expandedDays.has(group.key);
+            const dayIds = group.items.map((c) => c.sourcePath);
+            const dayAllSelected = dayIds.every((id) => selectedIds.has(id));
+            return (
+              <div key={group.key} className="aias-modal-day-group">
+                <div className="aias-modal-day-header" onClick={() => onToggleDayExpanded(group.key)}>
+                  <span>
+                    {expanded ? "▾" : "▸"} {group.label} ({group.items.length})
+                  </span>
+                  <button
+                    className="aias-btn aias-btn-ghost aias-btn-sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleDay(dayIds, !dayAllSelected);
+                    }}
+                  >
+                    {dayAllSelected ? "Deselect day" : "Select day"}
+                  </button>
+                </div>
+                {expanded &&
+                  group.items.map((c) => (
+                    <label key={c.sourcePath} className="aias-inbox-row" style={{ cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        className="aias-checkbox-lg"
+                        checked={selectedIds.has(c.sourcePath)}
+                        onChange={(e) => onToggleSelected(c.sourcePath, e.target.checked)}
+                      />
+                      <span className="aias-inbox-row-text">
+                        <strong>{c.originalFilename}</strong>
+                        <p className="aias-subtext" style={{ margin: "2px 0 0" }}>
+                          {c.source ? c.source.toLowerCase() : "no source"} · {formatTime(c.downloadedAt)}
+                        </p>
+                      </span>
+                    </label>
+                  ))}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="aias-divider" />
+        <div className="aias-row">
+          <span className="aias-subtext" style={{ margin: 0 }}>
+            {selectedIds.size} selected
+          </span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="aias-btn aias-btn-ghost" disabled={importing} onClick={onCancel}>
+              Cancel
+            </button>
+            <button className="aias-btn" disabled={importing || selectedIds.size === 0} onClick={onConfirm}>
+              {importing ? "Importing…" : `Import ${selectedIds.size}`}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [session, setSession] = useState<SessionState>(DEFAULT_SESSION_STATE);
   const [assets, setAssets] = useState<PendingAsset[]>([]);
@@ -193,7 +389,21 @@ export function App() {
   const [pickerError, setPickerError] = useState("");
   const [organizing, setOrganizing] = useState(false);
   const [organizeError, setOrganizeError] = useState("");
+  const [rescanning, setRescanning] = useState(false);
+  const [rescanMessage, setRescanMessage] = useState("");
+  const [rescanCandidates, setRescanCandidates] = useState<RescanCandidate[] | null>(null);
+  const [rescanSelectedIds, setRescanSelectedIds] = useState<Set<string>>(new Set());
+  const [rescanExpandedDays, setRescanExpandedDays] = useState<Set<string>>(new Set());
+  const [importingRescan, setImportingRescan] = useState(false);
   const [buckets] = useState<AssetBucket[]>(DEFAULT_BUCKETS);
+  const [focusedAssetId, setFocusedAssetId] = useState<string | null>(null);
+  // Native Messaging always talks to an Agent on this same machine, so the
+  // OS Chrome itself reports is exactly the OS the Agent's real paths use —
+  // every path composed/shown for preview purposes follows this, instead of
+  // a hardcoded "\\" (§ path separator unification).
+  const [pathSep, setPathSep] = useState<"\\" | "/">("\\");
+  const [pickingFolder, setPickingFolder] = useState(false);
+  const [folderPickerError, setFolderPickerError] = useState("");
 
   useEffect(() => {
     loadSessionState().then(setSession);
@@ -207,6 +417,7 @@ export function App() {
     chrome.runtime.sendMessage({ type: "aias-ping-agent" }, (res) => {
       setAgentStatus(res?.connected ? "connected" : "disconnected");
     });
+    chrome.runtime.getPlatformInfo((info) => setPathSep(info.os === "win" ? "\\" : "/"));
 
     const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (areaName !== "local") return;
@@ -226,7 +437,16 @@ export function App() {
 
   const organizable = useMemo(() => assets.filter((a) => ORGANIZABLE.has(a.status)), [assets]);
   const selected = useMemo(() => organizable.filter((a) => a.selected), [organizable]);
-  const allSelected = organizable.length > 0 && selected.length === organizable.length;
+  const allSelected = organizable.length > 0 && organizable.every((a) => a.selected);
+
+  // Keep the focused (right-panel) asset valid as the asset list changes —
+  // default to the first asset, or nothing if the list is empty.
+  useEffect(() => {
+    if (focusedAssetId && assets.some((a) => a.id === focusedAssetId)) return;
+    setFocusedAssetId(assets[0]?.id ?? null);
+  }, [assets, focusedAssetId]);
+
+  const focusedAsset = assets.find((a) => a.id === focusedAssetId) ?? null;
 
   function toggleSession(enabled: boolean) {
     setSession((prev) => {
@@ -265,9 +485,34 @@ export function App() {
       } else if (res?.ok && res.path === null) {
         // user cancelled the dialog — no-op
       } else {
-        setPickerError(res?.error ?? "Couldn't open the folder picker — Agent may not be running.");
+        setPickerError(res?.error ?? "Couldn't open the folder picker — Local App may not be running.");
         setRootDraft(defaultRoot);
         setEditingRoot(true);
+      }
+    });
+  }
+
+  function browseForFolder(assetId: string) {
+    if (!defaultRoot) {
+      setFolderPickerError("Set a Default Root first.");
+      return;
+    }
+    setFolderPickerError("");
+    setPickingFolder(true);
+    chrome.runtime.sendMessage({ type: "aias-pick-directory" }, (res) => {
+      setPickingFolder(false);
+      if (res?.ok && res.path) {
+        const relative = relativeToRoot(res.path, defaultRoot);
+        if (relative === null) {
+          setFolderPickerError(`Choose a folder inside Default Root (${defaultRoot})`);
+          return;
+        }
+        const normalized = splitCustomDirectorySegments(relative).join(pathSep);
+        patchNaming(assetId, { customDirectoryEnabled: true, customDirectory: normalized });
+      } else if (res?.ok && res.path === null) {
+        // user cancelled the dialog — no-op
+      } else {
+        setFolderPickerError(res?.error ?? "Couldn't open the folder picker — Local App may not be running.");
       }
     });
   }
@@ -279,8 +524,46 @@ export function App() {
 
   function toggleSelectAll() {
     const next = !allSelected;
-    setAssets((prev) => prev.map((a) => (ORGANIZABLE.has(a.status) ? { ...a, selected: next } : a)));
-    chrome.runtime.sendMessage({ type: "aias-set-all-selected", selected: next });
+    const ids = organizable.map((a) => a.id);
+    const idSet = new Set(ids);
+    setAssets((prev) => prev.map((a) => (idSet.has(a.id) ? { ...a, selected: next } : a)));
+    chrome.runtime.sendMessage({ type: "aias-set-selected-many", ids, selected: next });
+  }
+
+  function rescanDownloads() {
+    setRescanning(true);
+    setRescanMessage("");
+    chrome.runtime.sendMessage({ type: "aias-rescan-scan" }, (res) => {
+      setRescanning(false);
+      if (res?.error) {
+        setRescanMessage(res.error);
+        return;
+      }
+      const candidates: RescanCandidate[] = res?.candidates ?? [];
+      if (candidates.length === 0) {
+        setRescanMessage("No new downloads found");
+        return;
+      }
+      setRescanCandidates(candidates);
+      setRescanSelectedIds(new Set(candidates.map((c) => c.sourcePath)));
+      setRescanExpandedDays(new Set()); // every day group starts collapsed
+    });
+  }
+
+  function cancelRescanImport() {
+    setRescanCandidates(null);
+  }
+
+  function confirmRescanImport() {
+    if (!rescanCandidates) return;
+    const chosen = rescanCandidates.filter((c) => rescanSelectedIds.has(c.sourcePath));
+    setImportingRescan(true);
+    chrome.runtime.sendMessage({ type: "aias-rescan-import", candidates: chosen }, (res) => {
+      setImportingRescan(false);
+      setRescanCandidates(null);
+      const count = res?.addedCount ?? 0;
+      setRescanMessage(count > 0 ? `${count} new asset${count === 1 ? "" : "s"} imported` : "No assets imported");
+    });
   }
 
   function patchNaming(id: string, patch: Partial<NamingFields>) {
@@ -315,14 +598,7 @@ export function App() {
 
   return (
     <div style={{ minHeight: "100vh" }}>
-      {/* Shared by every asset card's Source input (list="aias-source-options") —
-          a fixed suggestion list that still allows freely typing any value. */}
-      <datalist id="aias-source-options">
-        {SOURCE_SUGGESTIONS.map((s) => (
-          <option key={s} value={s} />
-        ))}
-      </datalist>
-      <div className="aias-app aias-inbox-shell" style={{ maxWidth: 760, margin: "0 auto" }}>
+      <div className="aias-app aias-inbox-shell" style={{ maxWidth: 1020, margin: "0 auto" }}>
         <div className="aias-row" style={{ alignItems: "flex-start" }}>
           <div>
             <h1 className="aias-title" style={{ fontSize: 20 }}>
@@ -333,7 +609,7 @@ export function App() {
             </p>
           </div>
           <div className="aias-row" style={{ gap: 8 }}>
-            <strong>AI Session</strong>
+            <strong>Watch Mode</strong>
             <label className="aias-toggle">
               <input
                 type="checkbox"
@@ -354,7 +630,7 @@ export function App() {
                 style={{ margin: 0 }}
                 value={rootDraft}
                 onChange={(e) => setRootDraft(e.target.value)}
-                placeholder="D:\AI_Projects"
+                placeholder={pathSep === "\\" ? "D:\\AI_Projects" : "/Users/you/AI_Projects"}
               />
               <button className="aias-btn" onClick={saveRoot}>
                 Save
@@ -374,10 +650,11 @@ export function App() {
         </div>
 
         <div className="aias-card">
-          <p className="aias-card-title">Batch defaults</p>
+          <p className="aias-card-title">Workspace</p>
           <div className="aias-row-2col" style={{ gridTemplateColumns: "1fr 1fr 1fr" }}>
             <Field
               label="Project"
+              optional
               value={session.batchDefaultProject}
               onChange={(v) => updateBatchDefault("batchDefaultProject", v)}
             />
@@ -388,18 +665,14 @@ export function App() {
               onChange={(v) => updateBatchDefault("batchDefaultSequence", v)}
             />
             <label className="aias-field">
-              Save As
-              <select
-                className="aias-select"
+              Category
+              <span className="aias-field-optional">optional</span>
+              <Combobox
                 value={session.batchDefaultBucketId}
-                onChange={(e) => updateBatchDefault("batchDefaultBucketId", e.target.value)}
-              >
-                {buckets.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.label}
-                  </option>
-                ))}
-              </select>
+                options={CATEGORY_SUGGESTIONS}
+                placeholder="Generated"
+                onChange={(v) => updateBatchDefault("batchDefaultBucketId", v)}
+              />
             </label>
           </div>
           <div className="aias-row" style={{ marginTop: 10 }}>
@@ -412,196 +685,290 @@ export function App() {
           </div>
         </div>
 
-        <div className="aias-row" style={{ marginTop: 4 }}>
-          <p className="aias-card-title" style={{ margin: 0 }}>
-            Inbox
-          </p>
-          <button className="aias-btn aias-btn-ghost" disabled={organizable.length === 0} onClick={toggleSelectAll}>
-            {allSelected ? "Deselect all" : "Select all"}
-          </button>
-        </div>
-
         {assets.length === 0 && (
           <div className="aias-card">
             <p className="aias-subtext" style={{ margin: 0 }}>
-              No AI downloads yet. Turn AI Session on and download an image or video from ChatGPT or Gemini.
+              No downloads yet. Turn Watch Mode on and download an image or video.
             </p>
           </div>
         )}
 
-        {assets.map((asset) => {
-          const preview = computePreview(asset, defaultRoot, indexCounters, buckets);
-          const disabled = !ORGANIZABLE.has(asset.status);
-          return (
-            <div key={asset.id} className="aias-card">
-              <div className="aias-row" style={{ alignItems: "flex-start" }}>
-                <div className="aias-asset-header">
-                  <input
-                    type="checkbox"
-                    className="aias-checkbox-lg"
-                    checked={asset.selected && !disabled}
-                    disabled={disabled}
-                    onChange={(e) => toggleAssetSelected(asset.id, e.target.checked)}
-                  />
-                  <Thumbnail asset={asset} />
-                  <div>
-                    <strong>{asset.originalFilename}</strong>
-                    <p className="aias-subtext" style={{ margin: "2px 0 0" }}>
-                      {asset.source.toUpperCase()} · {asset.extension.replace(".", "").toUpperCase()} · downloaded{" "}
-                      {formatTime(asset.downloadedAt)}
-                    </p>
-                  </div>
-                </div>
-                <div className="aias-asset-header-actions">
-                  <span className={`aias-badge${asset.status === "organized" ? " aias-badge-on" : ""}`}>
-                    <span className="aias-badge-dot" />
-                    {STATUS_LABEL(asset.status)}
+        {assets.length > 0 && (
+          <div className="aias-inbox-split">
+            <div className="aias-inbox-list-pane">
+              <div className="aias-inbox-list-header">
+                <div className="aias-row">
+                  <p className="aias-card-title" style={{ margin: 0 }}>
+                    Inbox
+                  </p>
+                  <span className="aias-subtext" style={{ margin: 0 }}>
+                    {assets.length} file{assets.length === 1 ? "" : "s"}
                   </span>
+                </div>
+                {rescanMessage && (
+                  <p className="aias-subtext" style={{ margin: "4px 0 0" }}>
+                    {rescanMessage}
+                  </p>
+                )}
+                <div className="aias-inbox-list-actions">
+                  <button className="aias-btn aias-btn-ghost aias-btn-sm" disabled={rescanning} onClick={rescanDownloads}>
+                    {rescanning ? "Scanning…" : "Rescan Downloads"}
+                  </button>
                   <button
-                    className="aias-btn aias-btn-outline aias-btn-sm"
-                    onClick={() => chrome.downloads.open(asset.browserDownloadId)}
+                    className="aias-btn aias-btn-ghost aias-btn-sm"
+                    disabled={organizable.length === 0}
+                    onClick={toggleSelectAll}
                   >
-                    Open file
+                    {allSelected ? "Deselect all" : "Select all"}
                   </button>
                 </div>
               </div>
 
-              {asset.status === "failed" && asset.errorMessage && (
-                <p className="aias-subtext" style={{ color: "#b3413f" }}>
-                  {asset.errorMessage}
-                </p>
-              )}
-
-              <div
-                className={`aias-row-2col${disabled ? " aias-disabled" : ""}`}
-                style={{ marginTop: 8, gridTemplateColumns: "1fr 1fr 1fr" }}
-              >
-                <Field
-                  label="Shot"
-                  optional
-                  disabled={disabled}
-                  value={asset.naming.shot}
-                  onChange={(v) => patchNaming(asset.id, { shot: v })}
-                />
-                <Field
-                  label="Description"
-                  optional
-                  disabled={disabled}
-                  value={asset.naming.description}
-                  placeholder="closeup, wide shot, ..."
-                  onChange={(v) => patchNaming(asset.id, { description: v })}
-                />
-                <label className="aias-field">
-                  Source
-                  <input
-                    className="aias-input"
-                    disabled={disabled}
-                    value={asset.source}
-                    list="aias-source-options"
-                    placeholder="ChatGPT"
-                    onChange={(e) => updateSource(asset.id, e.target.value)}
-                  />
-                </label>
-              </div>
-
-              <div className={disabled ? "aias-disabled" : ""}>
-                <div className="aias-row" style={{ marginTop: 12 }}>
-                  <p className="aias-card-title" style={{ margin: 0 }}>
-                    Folder
-                  </p>
-                  <Segmented
-                    value={asset.naming.customDirectoryEnabled ?? false}
-                    disabled={disabled}
-                    onChange={(v) =>
-                      patchNaming(asset.id, {
-                        customDirectoryEnabled: v,
-                        // Switching to Custom via the toggle (not by typing) starts
-                        // from the current Auto value instead of blank — but never
-                        // from a bracketed placeholder message (§ guard).
-                        ...(v && !asset.naming.customDirectory && !preview.folderRelativePreview.startsWith("(")
-                          ? { customDirectory: preview.folderRelativePreview }
-                          : {}),
-                      })
-                    }
-                  />
-                </div>
-                <input
-                  className="aias-input"
-                  style={{ marginTop: 6 }}
-                  disabled={disabled}
-                  value={asset.naming.customDirectoryEnabled ? (asset.naming.customDirectory ?? "") : preview.folderRelativePreview}
-                  placeholder="ClientA\ReviewBatch2"
-                  onChange={(e) => patchNaming(asset.id, { customDirectoryEnabled: true, customDirectory: e.target.value })}
-                />
-
-                <div className="aias-row" style={{ marginTop: 12 }}>
-                  <p className="aias-card-title" style={{ margin: 0 }}>
-                    Filename
-                  </p>
-                  <Segmented
-                    value={asset.naming.customFilenameEnabled}
-                    disabled={disabled}
-                    onChange={(v) =>
-                      patchNaming(asset.id, {
-                        customFilenameEnabled: v,
-                        ...(v && !asset.naming.customFilename && !preview.filenameBasePreview.startsWith("(")
-                          ? { customFilename: preview.filenameBasePreview }
-                          : {}),
-                      })
-                    }
-                  />
-                </div>
-                {!asset.naming.customFilenameEnabled && (
-                  <div className="aias-chip-row" style={{ marginTop: 6 }}>
-                    {NAMING_TOKENS.map((t) => {
-                      const active = activeNamingTokens(asset.naming.namingTemplate).has(t.key);
-                      return (
-                        <button
-                          key={t.key}
-                          type="button"
-                          disabled={disabled}
-                          className={`aias-chip${active ? " active" : ""}`}
-                          onClick={() => {
-                            const tokens = activeNamingTokens(asset.naming.namingTemplate);
-                            if (active) {
-                              if (tokens.size === 1) return; // keep at least one token active
-                              tokens.delete(t.key);
-                            } else {
-                              tokens.add(t.key);
-                            }
-                            patchNaming(asset.id, { namingTemplate: buildTemplateFromTokens(tokens) });
-                          }}
-                        >
-                          {t.label} {active ? "✓" : "+"}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                  <input
-                    className="aias-input"
-                    style={{ margin: 0, flex: 1 }}
-                    disabled={disabled}
-                    value={asset.naming.customFilenameEnabled ? asset.naming.customFilename : preview.filenameBasePreview}
-                    placeholder="hero_woman_master"
-                    onChange={(e) => patchNaming(asset.id, { customFilenameEnabled: true, customFilename: e.target.value })}
-                  />
-                  <span className="aias-subtext" style={{ alignSelf: "center", margin: 0 }}>
-                    {asset.extension}
-                  </span>
-                </div>
-
-                <p className="aias-card-title" style={{ marginTop: 12 }}>
-                  Full path
-                </p>
-                <p className="aias-mono" style={{ margin: 0 }}>
-                  {preview.fullPathPreview}
-                </p>
+              <div className="aias-inbox-list">
+                {assets.map((asset) => {
+                  const rowDisabled = !ORGANIZABLE.has(asset.status);
+                  return (
+                    <div
+                      key={asset.id}
+                      className={`aias-inbox-row${asset.id === focusedAssetId ? " active" : ""}`}
+                      onClick={() => setFocusedAssetId(asset.id)}
+                    >
+                      <input
+                        type="checkbox"
+                        className="aias-checkbox-lg"
+                        checked={asset.selected && !rowDisabled}
+                        disabled={rowDisabled}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => toggleAssetSelected(asset.id, e.target.checked)}
+                      />
+                      <div className="aias-inbox-row-text">
+                        <strong>{asset.originalFilename}</strong>
+                        <p className="aias-subtext" style={{ margin: "2px 0 0" }}>
+                          {asset.source ? asset.source.toLowerCase() : "no source"} · {formatTime(asset.downloadedAt)}
+                        </p>
+                      </div>
+                      <span
+                        className={`aias-badge aias-inbox-row-badge${asset.status === "organized" ? " aias-badge-on" : ""}`}
+                      >
+                        <span className="aias-badge-dot" />
+                        {STATUS_LABEL(asset.status)}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          );
-        })}
+
+            <div className="aias-inbox-detail-pane">
+              {!focusedAsset && <p className="aias-inbox-empty-detail">Select a file on the left to edit it.</p>}
+              {focusedAsset && (() => {
+                const asset = focusedAsset;
+                const preview = computePreview(asset, defaultRoot, indexCounters, buckets, pathSep);
+                const disabled = !ORGANIZABLE.has(asset.status);
+                return (
+                  <>
+                    <div className="aias-row" style={{ alignItems: "flex-start" }}>
+                      <div className="aias-asset-header">
+                        <Thumbnail asset={asset} />
+                        <div>
+                          <strong>{asset.originalFilename}</strong>
+                          <p className="aias-subtext" style={{ margin: "2px 0 0" }}>
+                            {asset.source ? asset.source.toUpperCase() : "UNKNOWN SOURCE"} ·{" "}
+                            {asset.extension.replace(".", "").toUpperCase()} · downloaded {formatDateTime(asset.downloadedAt)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="aias-asset-header-actions">
+                        <button
+                          className="aias-btn aias-btn-outline aias-btn-sm"
+                          disabled={asset.browserDownloadId == null}
+                          title={
+                            asset.browserDownloadId == null
+                              ? "Not available for files found via Rescan folder scan"
+                              : undefined
+                          }
+                          onClick={() => {
+                            if (asset.browserDownloadId != null) chrome.downloads.open(asset.browserDownloadId);
+                          }}
+                        >
+                          Open file
+                        </button>
+                      </div>
+                    </div>
+
+                    {asset.status === "failed" && asset.errorMessage && (
+                      <p className="aias-subtext" style={{ color: "#b3413f" }}>
+                        {asset.errorMessage}
+                      </p>
+                    )}
+
+                    <div
+                      className={`aias-row-2col${disabled ? " aias-disabled" : ""}`}
+                      style={{ marginTop: 8, gridTemplateColumns: "1fr 1fr 1fr" }}
+                    >
+                      <Field
+                        label="Shot / Asset Name"
+                        optional
+                        disabled={disabled}
+                        value={asset.naming.shot}
+                        onChange={(v) => patchNaming(asset.id, { shot: v })}
+                      />
+                      <Field
+                        label="Description"
+                        optional
+                        disabled={disabled}
+                        value={asset.naming.description}
+                        placeholder="closeup, wide shot, ..."
+                        onChange={(v) => patchNaming(asset.id, { description: v })}
+                      />
+                      <label className="aias-field">
+                        Source
+                        <Combobox
+                          value={asset.source}
+                          options={SOURCE_SUGGESTIONS}
+                          placeholder="ChatGPT"
+                          disabled={disabled}
+                          onChange={(v) => updateSource(asset.id, v)}
+                        />
+                      </label>
+                    </div>
+
+                    <div className={disabled ? "aias-disabled" : ""}>
+                      <div className="aias-row" style={{ marginTop: 12 }}>
+                        <p className="aias-card-title" style={{ margin: 0 }}>
+                          Filename
+                        </p>
+                        <Segmented
+                          value={asset.naming.customFilenameEnabled}
+                          disabled={disabled}
+                          // Deliberately no auto-fill here (unlike Folder's toggle) — switching to
+                          // Custom starts from a genuinely blank input, not a pre-written default.
+                          onChange={(v) => patchNaming(asset.id, { customFilenameEnabled: v })}
+                        />
+                      </div>
+                      {!asset.naming.customFilenameEnabled && (
+                        <div className="aias-chip-row" style={{ marginTop: 6 }}>
+                          {NAMING_TOKENS.map((t) => {
+                            const active = activeNamingTokens(asset.naming.namingTemplate).has(t.key);
+                            return (
+                              <button
+                                key={t.key}
+                                type="button"
+                                disabled={disabled}
+                                className={`aias-chip${active ? " active" : ""}`}
+                                onClick={() => {
+                                  const tokens = activeNamingTokens(asset.naming.namingTemplate);
+                                  if (active) {
+                                    if (tokens.size === 1) return; // keep at least one token active
+                                    tokens.delete(t.key);
+                                  } else {
+                                    tokens.add(t.key);
+                                  }
+                                  patchNaming(asset.id, { namingTemplate: buildTemplateFromTokens(tokens) });
+                                }}
+                              >
+                                {t.label} {active ? "✓" : "+"}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                        <input
+                          className="aias-input"
+                          style={{ margin: 0, flex: 1 }}
+                          disabled={disabled}
+                          value={asset.naming.customFilenameEnabled ? asset.naming.customFilename : preview.filenameBasePreview}
+                          placeholder="hero_woman_master"
+                          onChange={(e) => patchNaming(asset.id, { customFilenameEnabled: true, customFilename: e.target.value })}
+                        />
+                        <span className="aias-subtext" style={{ alignSelf: "center", margin: 0 }}>
+                          {asset.extension}
+                        </span>
+                      </div>
+
+                      <div className="aias-row" style={{ marginTop: 12 }}>
+                        <p className="aias-card-title" style={{ margin: 0 }}>
+                          Folder
+                        </p>
+                        <Segmented
+                          value={asset.naming.customDirectoryEnabled ?? false}
+                          disabled={disabled}
+                          onChange={(v) =>
+                            patchNaming(asset.id, {
+                              customDirectoryEnabled: v,
+                              // Switching to Custom via the toggle (not by typing) starts
+                              // from the current Auto value instead of blank — but never
+                              // from a bracketed placeholder message (§ guard).
+                              ...(v && !asset.naming.customDirectory && !preview.folderRelativePreview.startsWith("(")
+                                ? { customDirectory: preview.folderRelativePreview }
+                                : {}),
+                            })
+                          }
+                        />
+                      </div>
+                      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                        <input
+                          className="aias-input"
+                          style={{ margin: 0, flex: 1 }}
+                          disabled={disabled}
+                          value={
+                            asset.naming.customDirectoryEnabled ? (asset.naming.customDirectory ?? "") : preview.folderFullPreview
+                          }
+                          placeholder={pathSep === "\\" ? "ClientA\\ReviewBatch2" : "ClientA/ReviewBatch2"}
+                          onFocus={() => {
+                            // Auto shows the fully-resolved absolute path — editing it directly
+                            // would have to be re-expressed as a Root-relative value anyway, so
+                            // focusing the field promotes to Custom first (seeded from the
+                            // Root-relative preview, same as the segmented toggle) and every
+                            // keystroke from then on edits that relative value, never the
+                            // absolute text (§ Filename already works this way).
+                            if (asset.naming.customDirectoryEnabled) return;
+                            patchNaming(asset.id, {
+                              customDirectoryEnabled: true,
+                              ...(!asset.naming.customDirectory && !preview.folderRelativePreview.startsWith("(")
+                                ? { customDirectory: preview.folderRelativePreview }
+                                : {}),
+                            });
+                          }}
+                          onChange={(e) => patchNaming(asset.id, { customDirectoryEnabled: true, customDirectory: e.target.value })}
+                        />
+                        {asset.naming.customDirectoryEnabled && (
+                          <button
+                            className="aias-btn aias-btn-outline aias-btn-sm"
+                            disabled={disabled || pickingFolder || !defaultRoot}
+                            title={!defaultRoot ? "Set a Default Root first" : undefined}
+                            onClick={() => browseForFolder(asset.id)}
+                          >
+                            {pickingFolder ? "Browsing…" : "Browse"}
+                          </button>
+                        )}
+                      </div>
+                      {asset.naming.customDirectoryEnabled && folderPickerError && (
+                        <p className="aias-subtext" style={{ color: "#b3413f" }}>
+                          {folderPickerError}
+                        </p>
+                      )}
+                      {asset.naming.customDirectoryEnabled && (
+                        <p className="aias-subtext" style={{ margin: "4px 0 0", wordBreak: "break-all" }}>
+                          {preview.folderFullPreview}
+                        </p>
+                      )}
+
+                      <div className="aias-divider" style={{ marginTop: 24, marginBottom: 16 }} />
+                      <p className="aias-card-title" style={{ marginTop: 0 }}>
+                        Full path
+                      </p>
+                      <p className="aias-mono" style={{ margin: 0 }}>
+                        {preview.fullPathPreview}
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        )}
 
         <div className="aias-footer" style={{ justifyContent: "flex-start" }}>
           <AgentBadge status={agentStatus} />
@@ -610,7 +977,7 @@ export function App() {
 
       {organizable.length > 0 && (
         <div className="aias-organize-bar">
-          <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ maxWidth: 1020, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <strong>{selected.length} asset{selected.length === 1 ? "" : "s"} ready</strong>
               <p className="aias-subtext" style={{ margin: 0 }}>
@@ -631,6 +998,46 @@ export function App() {
             </button>
           </div>
         </div>
+      )}
+
+      {rescanCandidates && (
+        <RescanImportModal
+          candidates={rescanCandidates}
+          selectedIds={rescanSelectedIds}
+          expandedDays={rescanExpandedDays}
+          importing={importingRescan}
+          onToggleSelected={(id, next) =>
+            setRescanSelectedIds((prev) => {
+              const s = new Set(prev);
+              if (next) s.add(id);
+              else s.delete(id);
+              return s;
+            })
+          }
+          onToggleDay={(ids, next) =>
+            setRescanSelectedIds((prev) => {
+              const s = new Set(prev);
+              for (const id of ids) {
+                if (next) s.add(id);
+                else s.delete(id);
+              }
+              return s;
+            })
+          }
+          onToggleDayExpanded={(key) =>
+            setRescanExpandedDays((prev) => {
+              const s = new Set(prev);
+              if (s.has(key)) s.delete(key);
+              else s.add(key);
+              return s;
+            })
+          }
+          onSelectAll={(next) =>
+            setRescanSelectedIds(next ? new Set(rescanCandidates.map((c) => c.sourcePath)) : new Set())
+          }
+          onCancel={cancelRescanImport}
+          onConfirm={confirmRescanImport}
+        />
       )}
     </div>
   );

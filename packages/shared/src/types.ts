@@ -131,7 +131,12 @@ export type PendingAssetStatus = "pending" | "organizing" | "organized" | "faile
 
 export interface PendingAsset {
   id: string;
-  browserDownloadId: number;
+  /** Set when this asset came from a real Chrome download (live Watch Mode
+   * detection) — used for chrome.downloads.open()/getFileIcon(). A Rescan
+   * found via a direct Downloads-folder scan (see "list-downloads-folder")
+   * has no such id, since it was never learned from chrome.downloads at all;
+   * callers must treat it as absent rather than assume every asset has one. */
+  browserDownloadId?: number;
   /** Absolute path in the OS Downloads folder, captured once when the download
    * completed (§F-1 Session Snapshot equivalent — never re-read afterwards). */
   sourcePath: string;
@@ -164,6 +169,18 @@ export interface OrganizeBatchItem {
   source: string;
   reservedIndex: number;
   naming: NamingFields;
+}
+
+/** One file the Agent found sitting directly in the OS Downloads folder (a real
+ * `fs.readdir`/`fs.stat`, not a chrome.downloads history lookup — see
+ * "list-downloads-folder"). `path` is the absolute path; `modifiedAt` prefers
+ * birth time (creation) and falls back to mtime, used as "downloaded at" for
+ * the Rescan picker's day grouping. */
+export interface DownloadsFolderEntry {
+  path: string;
+  filename: string;
+  extension: string;
+  modifiedAt: number;
 }
 
 export interface OrganizeBatchItemResult {
@@ -211,7 +228,15 @@ export type NativeRequest =
    * native OS folder dialog is shown by the Agent itself (a real local
    * process), which returns the chosen path as a plain string.
    */
-  | { type: "pick-directory" };
+  | { type: "pick-directory" }
+  /**
+   * §Rescan — reads the real OS Downloads folder directly instead of going
+   * through chrome.downloads.search(), which only reflects Chrome's own
+   * download history database and misses a file whose history entry was
+   * cleared (e.g. via "Clear browsing data") even though the file itself is
+   * still sitting on disk untouched.
+   */
+  | { type: "list-downloads-folder" };
 
 export type NativeErrorCode =
   | "OUTSIDE_ROOT"
@@ -232,4 +257,6 @@ export type NativeResponse =
   | { type: "get-settings-result"; settings: Omit<AgentConfig, "allowedExtensionId"> }
   | { type: "pong" }
   | { type: "pick-directory-result"; ok: true; path: string | null } // null = user cancelled the dialog
-  | { type: "pick-directory-result"; ok: false; error: string };
+  | { type: "pick-directory-result"; ok: false; error: string }
+  | { type: "list-downloads-folder-result"; ok: true; files: DownloadsFolderEntry[] }
+  | { type: "list-downloads-folder-result"; ok: false; error: string };

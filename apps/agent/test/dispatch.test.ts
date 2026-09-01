@@ -172,4 +172,25 @@ describe("dispatch", () => {
     const res = await dispatch({ configStore, jobQueue }, { type: "pick-directory" });
     expect(res).toMatchObject({ type: "pick-directory-result", ok: false });
   });
+
+  it("lists real files sitting in the Downloads folder on list-downloads-folder", async () => {
+    await writeFile(path.join(downloadsDir, "photo.png"), "bytes");
+    const res = await dispatch({ configStore, jobQueue, downloadsRoot: downloadsDir }, { type: "list-downloads-folder" });
+
+    expect(res.type).toBe("list-downloads-folder-result");
+    if (res.type === "list-downloads-folder-result" && res.ok) {
+      expect(res.files.map((f) => f.filename)).toEqual(["photo.png"]);
+      expect(res.files[0].path).toBe(path.join(downloadsDir, "photo.png"));
+    } else {
+      throw new Error("expected ok:true");
+    }
+  });
+
+  it("returns ok:false when the Downloads folder can't be read", async () => {
+    const res = await dispatch(
+      { configStore, jobQueue, downloadsRoot: path.join(downloadsDir, "does-not-exist") },
+      { type: "list-downloads-folder" },
+    );
+    expect(res).toMatchObject({ type: "list-downloads-folder-result", ok: false });
+  });
 });

@@ -1,9 +1,11 @@
 // §5 Download Detection — downloads are left completely untouched at
-// detection time (no staging redirect, no suggest() call at all): if AI
-// Session is on and the download matches an adapter, we just remember that
-// this browserDownloadId is "ours" and register it as a Pending Asset once
-// Chrome reports the download complete, using whatever absolute path Chrome
-// actually wrote the file to. See the Download → Inbox → Edit → Organize plan.
+// detection time (no staging redirect, no suggest() call at all): while Watch
+// Mode is on, every completed image/video download is tracked as "ours" and
+// registered as a Pending Asset once Chrome reports it complete, using
+// whatever absolute path Chrome actually wrote the file to — regardless of
+// which site it came from. Adapter/host matching is only used to attach a
+// best-effort `source` label (blank if unrecognized), not to decide whether
+// to track the download at all. See the Download → Inbox → Edit → Organize plan.
 //
 // IMPORTANT: chrome.downloads.on*.addListener(...) below is still called
 // synchronously at the top of registerDownloadListeners(), which itself must
@@ -41,12 +43,12 @@ export interface DownloadListenerDeps {
   onAssetRegistered(asset: PendingAsset): void;
 }
 
-function extensionOf(filename: string): string {
+export function extensionOf(filename: string): string {
   const dot = filename.lastIndexOf(".");
   return dot === -1 ? "" : filename.slice(dot).toLowerCase();
 }
 
-function basenameOf(filename: string): string {
+export function basenameOf(filename: string): string {
   return filename.split(/[\\/]/).pop() ?? filename;
 }
 
@@ -73,38 +75,26 @@ export function registerDownloadListeners(deps: DownloadListenerDeps): void {
   chrome.downloads.onDeterminingFilename.addListener((item) => {
     const session = deps.getSession();
     // §F hard boundary: AI Session OFF means no detection/registration at all.
-    if (!session.aiSessionEnabled) {
-      console.log("[AIAS] onDeterminingFilename: skipped, AI Session is OFF", item.filename);
-      return;
-    }
+    if (!session.aiSessionEnabled) return;
 
     const extension = extensionOf(item.filename);
     const mediaType = mediaTypeForExtension(extension);
-    if (!mediaType) {
-      console.log("[AIAS] onDeterminingFilename: skipped, unsupported extension", extension, item.filename);
-      return;
-    }
+    if (!mediaType) return;
 
-    const ping = deps.intentPingStore.mostRecent();
+    // Adapter/host matching is a best-effort source label now, not a gate —
+    // every image/video download is tracked while Watch Mode is on, regardless
+    // of where it came from (see the "general download manager" scope change).
     const adapter = findMatchingAdapter({
       url: item.url,
       referrer: item.referrer,
-      recentIntentPing: ping,
+      recentIntentPing: deps.intentPingStore.mostRecent(),
     });
-    console.log("[AIAS] onDeterminingFilename", {
-      url: item.url,
-      referrer: item.referrer,
-      recentIntentPing: ping,
-      matchedAdapter: adapter?.id ?? null,
-    });
-    if (!adapter) return;
 
     // No suggest() call: the file lands exactly where Chrome's own default
     // Downloads behavior puts it (§5) — nothing to lose track of if the user
     // never opens the Inbox or never clicks Organize.
-    inFlight.set(item.id, { source: adapter.id, mediaType, extension });
+    inFlight.set(item.id, { source: adapter?.id ?? "", mediaType, extension });
     persistInFlight();
-    console.log("[AIAS] onDeterminingFilename: tracking as AI download", item.id, adapter.id);
   });
 
   chrome.downloads.onChanged.addListener((delta) => {
@@ -112,7 +102,6 @@ export function registerDownloadListeners(deps: DownloadListenerDeps): void {
 
     if (delta.state.current === "complete") {
       const detection = inFlight.get(delta.id);
-      console.log("[AIAS] onChanged complete", delta.id, "tracked:", detection ?? null);
       if (!detection) return; // not one of ours (or Session was off when it started)
       inFlight.delete(delta.id);
       persistInFlight();
@@ -130,7 +119,6 @@ export function registerDownloadListeners(deps: DownloadListenerDeps): void {
             downloadedAt: Date.now(),
             naming: deps.buildDefaultNaming(),
           });
-          console.log("[AIAS] registered PendingAsset", asset);
           deps.onAssetRegistered(asset);
         });
       });

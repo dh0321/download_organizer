@@ -62,11 +62,19 @@ describe("resolveSafeDestination", () => {
     });
   });
 
-  it("throws MISSING_REQUIRED_FIELD when the required project field is empty", async () => {
+  it("drops the project segment when empty too — Project is optional like every other level (§ Workspace scope widening)", async () => {
     const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
-    await expect(resolveSafeDestination(config, naming({ project: "" }))).rejects.toMatchObject({
-      code: "MISSING_REQUIRED_FIELD",
-    });
+    const dest = await resolveSafeDestination(config, naming({ project: "" }));
+    expect(dest).toBe(path.join(root, "SQ010", "SH020", "Generated"));
+  });
+
+  it("lands directly in Default Root when project/sequence/shot/bucket are all empty", async () => {
+    const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
+    const dest = await resolveSafeDestination(
+      config,
+      naming({ project: "", sequence: "", shot: "", bucketId: "" }),
+    );
+    expect(dest).toBe(root);
   });
 
   it("rejects a '..' path-traversal attempt disguised as a project name", async () => {

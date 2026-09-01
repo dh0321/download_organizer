@@ -17,6 +17,7 @@ import { JobManager } from "./jobManager.js";
 import { IntentPingStore } from "./intentPingStore.js";
 import { NativeClient } from "./nativeClient.js";
 import { registerDownloadListeners } from "./downloadListener.js";
+import { scanDownloadsFolder, importRescanCandidates } from "./rescanDownloads.js";
 import { runOrganizeFlow } from "./organizeFlow.js";
 import { notifyOrganizeResult, notifyError } from "./notifier.js";
 import { loadPendingAssets, persistPendingAssets } from "./pendingAssetsStorage.js";
@@ -179,6 +180,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "aias-set-selected-many") {
+    void jobManagerPromise.then((jm) => {
+      jm.setSelectedByIds(message.ids, message.selected);
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
   if (message?.type === "aias-apply-defaults-to-selected") {
     void jobManagerPromise.then((jm) => {
       jm.applyDefaultsToSelected(message.defaults);
@@ -199,6 +208,31 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       } else if (!result.ok) {
         notifyError("Couldn't organize assets", result.error ?? "Unknown error");
       }
+      sendResponse(result);
+    });
+    return true;
+  }
+
+  if (message?.type === "aias-rescan-scan") {
+    void jobManagerPromise.then(async (jm) => {
+      try {
+        const result = await scanDownloadsFolder(jm, (req) => nativeClient.send(req));
+        sendResponse(result);
+      } catch (err) {
+        // Without this, a native-message failure (e.g. timeout, Local App not
+        // running) would leave sendResponse uncalled and the Inbox stuck on
+        // "Scanning…" forever — every other native-messaging handler in this
+        // file already guards against exactly this.
+        sendResponse({ error: String(err) });
+      }
+    });
+    return true;
+  }
+
+  if (message?.type === "aias-rescan-import") {
+    void jobManagerPromise.then(async (jm) => {
+      const result = importRescanCandidates(jm, message.candidates, buildDefaultNaming);
+      updateBadge(jm);
       sendResponse(result);
     });
     return true;

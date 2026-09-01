@@ -54,6 +54,20 @@ describe("resolveDestinationFolderSegments", () => {
     ).toThrow(PathTraversalError);
   });
 
+  it("drops the trailing bucket/customFolderName segment entirely when it's empty, instead of throwing", () => {
+    const segments = resolveDestinationFolderSegments(
+      LEVELS,
+      { project: "Galaxy_S27", sequence: "SQ010", shot: "" },
+      "",
+    );
+    expect(segments).toEqual(["Galaxy_S27", "SQ010"]);
+  });
+
+  it("drops a whitespace-only bucket/customFolderName segment too", () => {
+    const segments = resolveDestinationFolderSegments(LEVELS, { project: "Galaxy_S27", sequence: "", shot: "" }, "   ");
+    expect(segments).toEqual(["Galaxy_S27"]);
+  });
+
   it("sanitizes every segment including the bucket", () => {
     const segments = resolveDestinationFolderSegments(
       LEVELS,

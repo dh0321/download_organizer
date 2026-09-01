@@ -8,7 +8,7 @@ export const DEFAULT_SESSION_STATE: SessionState = {
   aiSessionEnabled: false,
   batchDefaultProject: "",
   batchDefaultSequence: "",
-  batchDefaultBucketId: "generated",
+  batchDefaultBucketId: "",
 };
 
 export async function loadSessionState(): Promise<SessionState> {

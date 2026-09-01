@@ -68,4 +68,22 @@ describe("moveIntoDestination", () => {
     const entries = await readdir(destDir);
     expect(entries).toEqual(["hero.mov"]);
   });
+
+  it("still reports success when deleting the original source fails (e.g. locked open by another program) — the file is already safely at the destination", async () => {
+    const src = path.join(stagingDir, "download.tmp");
+    await writeFile(src, "hello world");
+
+    const finalPath = await moveIntoDestination(src, destDir, "hero", ".mov", {
+      unlinkFn: async (p) => {
+        if (p === src) throw Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" });
+        await (await import("node:fs/promises")).unlink(p);
+      },
+    });
+
+    expect(finalPath).toBe(path.join(destDir, "hero.mov"));
+    expect(await readFile(finalPath, "utf-8")).toBe("hello world");
+    // the redundant source copy is left behind on purpose — never duplicated
+    // at the destination, never reported as a failure (§M).
+    expect(await readFile(src, "utf-8")).toBe("hello world");
+  });
 });

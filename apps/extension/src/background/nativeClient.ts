@@ -166,5 +166,7 @@ function responseTypeFor(requestType: NativeRequest["type"]): NativeResponse["ty
       return "organize-batch-result";
     case "pick-directory":
       return "pick-directory-result";
+    case "list-downloads-folder":
+      return "list-downloads-folder-result";
   }
 }

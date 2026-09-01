@@ -45,14 +45,14 @@ export function App() {
         </h1>
 
         <div className="aias-card">
-          <p className="aias-card-title">Local Agent</p>
+          <p className="aias-card-title">Local App</p>
           <span className={`aias-badge ${modifier}`.trim()}>
             <span className="aias-badge-dot" />
             {statusText}
           </span>
           {status !== "connected" && (
             <p className="aias-subtext">
-              Install and run the AI Asset Saver Agent, then reload this page. See the project README for the
+              Install and run the AI Asset Saver Local App, then reload this page. See the project README for the
               Windows installer.
             </p>
           )}

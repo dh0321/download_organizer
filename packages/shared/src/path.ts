@@ -26,7 +26,10 @@ export interface NamingLike {
  * Builds the list of folder segments (Project/Sequence/Shot/... + bucket), dropping
  * empty optional levels entirely rather than inserting a blank segment — this is
  * what guarantees `Galaxy_S27\SH020\Generated` (Sequence omitted) instead of a path
- * with a hole in it.
+ * with a hole in it. The trailing bucket/customFolderName segment follows the same
+ * "empty means drop it" rule as every other optional level — Category is optional
+ * in the UI, so an empty one must not throw (previously it did, via
+ * sanitizeSegment("") on an unconditionally-pushed empty segment).
  */
 export function resolveDestinationFolderSegments(
   levels: FolderLevel[],
@@ -46,7 +49,9 @@ export function resolveDestinationFolderSegments(
     // optional + empty -> silently dropped, never inserts a blank segment
   }
 
-  segments.push(sanitizeSegment(bucketOrCustomFolderName));
+  if (bucketOrCustomFolderName.trim()) {
+    segments.push(sanitizeSegment(bucketOrCustomFolderName));
+  }
   return segments;
 }
 

@@ -12,17 +12,21 @@ export const DEFAULT_FOLDER_TEMPLATE: FolderTemplate = {
   id: "default",
   name: "Project / Sequence / Shot",
   levels: [
-    { key: "project", label: "Project", order: 0, required: true },
+    { key: "project", label: "Project", order: 0, required: false },
     { key: "sequence", label: "Sequence", order: 1, required: false },
-    { key: "shot", label: "Shot", order: 2, required: false },
+    { key: "shot", label: "Shot / Name", order: 2, required: false },
   ],
 };
 
 export const DEFAULT_ASSET_BUCKETS: AssetBucket[] = [
   { id: "generated", label: "Generated", order: 0 },
   { id: "reference", label: "Reference", order: 1 },
-  { id: "select", label: "Select", order: 2 },
-  { id: "final", label: "Final", order: 3 },
+  { id: "character", label: "Character", order: 2 },
+  { id: "environment", label: "Environment", order: 3 },
+  { id: "prop", label: "Prop", order: 4 },
+  { id: "turntable", label: "Turntable", order: 5 },
+  { id: "concept", label: "Concept", order: 6 },
+  { id: "final", label: "Final", order: 7 },
 ];
 
 export function defaultAgentConfig(allowedExtensionId: string): AgentConfig {

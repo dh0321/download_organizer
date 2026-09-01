@@ -10,6 +10,7 @@ import type { JobWorkerPool } from "./jobQueue.js";
 import { handleRouteFile } from "./routeFile.js";
 import { getMaxIndex } from "./getMaxIndex.js";
 import { pickDirectory } from "./directoryPicker.js";
+import { listDownloadsFolder } from "./listDownloadsFolder.js";
 
 export interface DispatchDeps {
   configStore: AgentConfigStore;
@@ -85,6 +86,15 @@ export async function dispatch(deps: DispatchDeps, req: NativeRequest): Promise<
         return { type: "pick-directory-result", ok: true, path };
       } catch (e) {
         return { type: "pick-directory-result", ok: false, error: (e as Error).message };
+      }
+    }
+
+    case "list-downloads-folder": {
+      try {
+        const files = await listDownloadsFolder(deps.downloadsRoot);
+        return { type: "list-downloads-folder-result", ok: true, files };
+      } catch (e) {
+        return { type: "list-downloads-folder-result", ok: false, error: (e as Error).message };
       }
     }
   }

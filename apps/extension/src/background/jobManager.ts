@@ -26,7 +26,7 @@ export interface JobManagerDeps {
 }
 
 export interface RegisterPendingAssetParams {
-  browserDownloadId: number;
+  browserDownloadId?: number;
   sourcePath: string;
   originalFilename: string;
   extension: string;
@@ -146,6 +146,17 @@ export class JobManager {
   setAllSelected(selected: boolean): void {
     for (const asset of this.assets.values()) {
       if (ORGANIZABLE_STATUSES.includes(asset.status)) asset.selected = selected;
+    }
+    this.persist();
+  }
+
+  /** Like setAllSelected, but scoped to a specific id set — used by the Inbox
+   * "Select all" button when a display filter (e.g. "AI files only") is
+   * active, so hidden assets are never silently selected/deselected. */
+  setSelectedByIds(ids: string[], selected: boolean): void {
+    const idSet = new Set(ids);
+    for (const asset of this.assets.values()) {
+      if (idSet.has(asset.id) && ORGANIZABLE_STATUSES.includes(asset.status)) asset.selected = selected;
     }
     this.persist();
   }

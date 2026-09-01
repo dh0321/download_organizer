@@ -16,7 +16,7 @@
      used to signal a positive/selected state — "AI Session is ON" (toggle +
      session card) and a selected naming-token chip (.aias-chip.active).
      Everything else stays grayscale. */
-  --color-active: #6f9c85;
+  --color-active: #4d8567;
   --color-active-soft: #e9f1ec;
   --color-active-text: #3f6b56;
 
@@ -261,6 +261,13 @@ body {
   background: var(--color-accent-soft);
   color: var(--color-text);
 }
+/* Same status-dot logic (aias-badge-on/neutral), no pill background/padding —
+   used where the status just needs to sit as plain text+dot, not a chip
+   (e.g. the Local App connection status). */
+.aias-badge--bare {
+  background: transparent;
+  padding: 0;
+}
 .aias-badge-dot {
   width: 7px;
   height: 7px;
@@ -269,7 +276,8 @@ body {
   background: transparent;
 }
 .aias-badge-on .aias-badge-dot {
-  background: var(--color-text);
+  background: var(--color-active);
+  border-color: var(--color-active);
 }
 .aias-badge-neutral {
   color: var(--color-text-muted);
@@ -281,7 +289,8 @@ body {
 .aias-footer {
   display: flex;
   justify-content: center;
-  padding-top: 2px;
+  padding-top: 8px;
+  padding-bottom: 8px;
 }
 
 /* AI Session state (§D) — the one card allowed to use --color-active */
@@ -419,6 +428,117 @@ body {
   font-size: 11px;
 }
 
+/* Inbox master-detail layout (§5 scope widening) — left: compact checkbox
+   list, right: the focused asset's full edit form. */
+.aias-inbox-split {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  background: var(--color-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-tiny);
+  overflow: hidden;
+}
+.aias-inbox-list-pane {
+  width: 340px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+.aias-inbox-list-header {
+  padding: 16px 16px 10px;
+}
+.aias-inbox-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.aias-inbox-list {
+  overflow-y: auto;
+  max-height: 560px;
+}
+.aias-inbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--color-border);
+  cursor: pointer;
+}
+.aias-inbox-row:hover {
+  background: var(--color-accent-soft);
+}
+.aias-inbox-row.active {
+  background: var(--color-accent-soft);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+.aias-inbox-row-text {
+  min-width: 0;
+  flex: 1;
+}
+.aias-inbox-row-badge {
+  flex-shrink: 0;
+}
+.aias-inbox-row-text strong {
+  display: block;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aias-inbox-detail-pane {
+  flex: 1;
+  min-width: 0;
+  padding: 16px 20px;
+}
+.aias-inbox-empty-detail {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* Rescan picker modal (§3-3) */
+.aias-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 24px;
+}
+.aias-modal-card {
+  background: var(--color-card);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  padding: 20px 24px;
+  width: 100%;
+  max-width: 560px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.aias-modal-list {
+  overflow-y: auto;
+  margin-top: 4px;
+}
+.aias-modal-day-group {
+  border-top: 1px solid var(--color-border);
+}
+.aias-modal-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
 .aias-asset-header {
   display: flex;
   gap: 12px;
@@ -438,4 +558,64 @@ body {
   width: 18px;
   height: 18px;
   accent-color: var(--color-accent);
+}
+
+/* Instant custom tooltip (e.g. full filename on hover over a truncated name)
+   — the native `title` attribute has a ~1.5s browser-enforced delay; this has
+   none beyond a fast fade-in. React's `style` prop can't express `:hover`, so
+   this stays a class + data-attribute pair. */
+.aias-tooltip {
+  position: relative;
+}
+.aias-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: 125%;
+  left: 0;
+  background: var(--color-card);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: normal;
+  max-width: 260px;
+  word-break: break-word;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+  z-index: 10;
+}
+.aias-tooltip:hover::after {
+  opacity: 1;
+}
+
+/* Combobox suggestion panel (Source/Category §7) — always lists every
+   option (unlike native <datalist>, which filters to prefix-matches), with
+   the one matching the current value highlighted like a <select>. */
+.aias-combobox-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  z-index: 20;
+  overflow: hidden;
+}
+.aias-combobox-option {
+  padding: 7px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.aias-combobox-option:hover {
+  background: var(--color-accent-soft);
+}
+.aias-combobox-option.active {
+  background: var(--color-active-soft);
+  color: var(--color-active-text);
 }

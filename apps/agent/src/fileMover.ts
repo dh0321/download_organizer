@@ -39,6 +39,10 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, message: string)
 export interface MoveOptions {
   /** Timeout for each individual filesystem operation, guards against a hung NAS (§L). */
   ioTimeoutMs?: number;
+  /** Injectable only for tests — lets a test simulate unlink() failing (e.g. a
+   * file locked open by another program on Windows) without depending on
+   * OS-specific file-locking behavior that doesn't reproduce on macOS/Linux. */
+  unlinkFn?: (path: string) => Promise<void>;
 }
 
 /**
@@ -55,6 +59,7 @@ export async function moveIntoDestination(
   options: MoveOptions = {},
 ): Promise<string> {
   const ioTimeoutMs = options.ioTimeoutMs ?? 30_000;
+  const unlinkFn = options.unlinkFn ?? unlink;
 
   let sourceStat;
   try {
@@ -95,13 +100,22 @@ export async function moveIntoDestination(
       );
     }
 
-    await unlink(tempPath);
-    await unlink(sourcePath);
+    await unlinkFn(tempPath);
+    // The file is now safely and durably at `finalPath` (verified-size copy,
+    // hard-linked in place) — this is the point of no return. Deleting the
+    // original in Downloads is cleanup, not part of the safety guarantee, so
+    // its failure (e.g. another program has the file open — common on
+    // Windows, where that can deny delete) must never turn an already-
+    // successful move into a reported failure. Worst case: a redundant copy
+    // is left behind in Downloads for the user to remove by hand — never a
+    // duplicate at the destination, since re-Organizing an "Organized" asset
+    // isn't possible from the Inbox.
+    await unlinkFn(sourcePath).catch(() => {});
     return finalPath;
   } catch (e) {
     // Best-effort cleanup of the temp file; never touch sourcePath on failure —
     // the staged download must survive so the user never loses the file (§M).
-    await unlink(tempPath).catch(() => {});
+    await unlinkFn(tempPath).catch(() => {});
     if (e instanceof RoutingError) throw e;
     const code: NativeErrorCode = e instanceof TimeoutError ? "IO_ERROR" : "IO_ERROR";
     throw new RoutingError(code, `File move failed: ${(e as Error).message}`);

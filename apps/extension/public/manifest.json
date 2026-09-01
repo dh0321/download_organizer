@@ -2,12 +2,22 @@
   "manifest_version": 3,
   "name": "AI Asset Saver",
   "version": "0.1.0",
-  "description": "Automatically renames and routes AI-generated images/videos from ChatGPT and Gemini into your project folders — only while AI Session is on.",
+  "description": "Automatically renames and routes your image/video downloads into project folders — recognizes ChatGPT, Gemini, and many other AI generation tools as a source label while Watch Mode is on.",
   "permissions": ["downloads", "downloads.open", "storage", "nativeMessaging", "notifications"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
-    "https://gemini.google.com/*"
+    "https://gemini.google.com/*",
+    "https://aistudio.google.com/*",
+    "https://higgsfield.ai/*",
+    "https://dreamina.capcut.com/*",
+    "https://midjourney.com/*",
+    "https://leonardo.ai/*",
+    "https://krea.ai/*",
+    "https://app.runwayml.com/*",
+    "https://kling.ai/*",
+    "https://firefly.adobe.com/*",
+    "https://xianchou.com/*"
   ],
   "background": {
     "service_worker": "background/index.js",
@@ -18,7 +28,17 @@
       "matches": [
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",
-        "https://gemini.google.com/*"
+        "https://gemini.google.com/*",
+        "https://aistudio.google.com/*",
+        "https://higgsfield.ai/*",
+        "https://dreamina.capcut.com/*",
+        "https://midjourney.com/*",
+        "https://leonardo.ai/*",
+        "https://krea.ai/*",
+        "https://app.runwayml.com/*",
+        "https://kling.ai/*",
+        "https://firefly.adobe.com/*",
+        "https://xianchou.com/*"
       ],
       "js": ["content-scripts/intentPing.js"],
       "run_at": "document_idle"

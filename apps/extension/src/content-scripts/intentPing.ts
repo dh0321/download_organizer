@@ -34,11 +34,7 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 document.addEventListener(
   "click",
   () => {
-    if (!cachedSessionEnabled) {
-      console.log("[AIAS] click ignored — AI Session is OFF (as seen by this tab)");
-      return; // §F-2 — no signal at all while Session is OFF
-    }
-    console.log("[AIAS] sending intent-ping", location.origin);
+    if (!cachedSessionEnabled) return; // §F-2 — no signal at all while Session is OFF
     chrome.runtime.sendMessage({
       type: "aias-intent-ping",
       origin: location.origin,
