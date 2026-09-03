@@ -21,6 +21,7 @@ import { scanDownloadsFolder, importRescanCandidates } from "./rescanDownloads.j
 import { runOrganizeFlow } from "./organizeFlow.js";
 import { notifyOrganizeResult, notifyError } from "./notifier.js";
 import { loadPendingAssets, persistPendingAssets } from "./pendingAssetsStorage.js";
+import { loadOrganizeLog, persistOrganizeLog } from "./organizeLogStorage.js";
 import { SESSION_STORAGE_KEY, INDEX_COUNTERS_STORAGE_KEY } from "./storageKeys.js";
 
 const intentPingStore = new IntentPingStore();
@@ -51,6 +52,8 @@ const jobManagerPromise: Promise<JobManager> = JobManager.create({
   persistPendingAssets,
   loadPersistedIndexCounters,
   persistIndexCounters,
+  loadOrganizeLog,
+  persistOrganizeLog,
   generateJobId: () => crypto.randomUUID(),
 });
 
@@ -234,6 +237,35 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       const result = importRescanCandidates(jm, message.candidates, buildDefaultNaming);
       updateBadge(jm);
       sendResponse(result);
+    });
+    return true;
+  }
+
+  if (message?.type === "aias-prune-organized") {
+    // Auto-cleanup trigger: fired once by the Inbox page on every fresh
+    // load/reload, never from a timer — see JobManager.pruneOrganizedIntoLog.
+    void jobManagerPromise.then((jm) => {
+      jm.pruneOrganizedIntoLog();
+      updateBadge(jm);
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message?.type === "aias-empty-inbox") {
+    void jobManagerPromise.then((jm) => {
+      jm.emptyInbox();
+      updateBadge(jm);
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message?.type === "aias-remove-asset") {
+    void jobManagerPromise.then((jm) => {
+      jm.removeAsset(message.id);
+      updateBadge(jm);
+      sendResponse({ ok: true });
     });
     return true;
   }

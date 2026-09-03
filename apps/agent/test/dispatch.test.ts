@@ -102,7 +102,7 @@ describe("dispatch", () => {
 
     expect(res.type).toBe("route-file-result");
     if (res.type === "route-file-result" && res.ok) {
-      expect(res.finalPath.endsWith(path.join("P", "SH010", "Generated", "SH010_IMG_001.png"))).toBe(true);
+      expect(res.finalPath.endsWith(path.join("P", "Generated", "SH010_IMG_v001.png"))).toBe(true);
     } else {
       throw new Error("expected success");
     }

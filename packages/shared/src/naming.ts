@@ -44,17 +44,24 @@ export function buildFilename(template: string, tokens: BuildFilenameTokens, ext
   slots.forEach((slot) => {
     let v = "";
     if (slot === "shot") {
-      // §H identifier fallback chain — applies wherever {shot} appears in the
-      // template (not tied to its position), since it's the one token whose
-      // whole point is "the thing this asset is identified by":
-      // shot -> sequence -> project -> "asset".
-      const identifier = tokens.shot || tokens.sequence || tokens.project || "asset";
+      // §H identifier — applies wherever {shot} appears in the template (not
+      // tied to its position). Deliberately NO fallback to Project or
+      // Sequence when empty: both are shared across many assets, so silently
+      // borrowing either one made unrelated assets indistinguishable by
+      // filename alone. An empty Shot/Asset Name always reads as "untitled",
+      // a clear signal to go fill it in, rather than a name that looks
+      // intentional but isn't unique.
+      const identifier = tokens.shot || "untitled";
       v = sanitizeSegment(identifier);
     } else if (slot === "description") {
       const d = tokens.description.trim();
       v = d ? sanitizeSegment(d) : "";
     } else if (slot === "index") {
-      v = String(tokens.index).padStart(3, "0");
+      // "v"-prefixed like a version number (v001, v002, ...) even though this
+      // is still the same Index Reservation counter under the hood — it's a
+      // display convention, not a distinct "version" concept (see the
+      // separate {version} slot below, unused by the UI today).
+      v = `v${String(tokens.index).padStart(3, "0")}`;
     } else if (slot === "version") {
       v = tokens.version != null ? `v${String(tokens.version).padStart(3, "0")}` : "";
     } else if (slot === "type") {

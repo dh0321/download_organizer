@@ -36,16 +36,16 @@ describe("resolveSafeDestination", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("creates and returns the nested folder for project/sequence/shot/bucket", async () => {
+  it("creates and returns the nested folder for project/sequence/bucket — shot/name is a filename identifier, not a folder level", async () => {
     const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
     const dest = await resolveSafeDestination(config, naming());
-    expect(dest).toBe(path.join(root, "Galaxy_S27", "SQ010", "SH020", "Generated"));
+    expect(dest).toBe(path.join(root, "Galaxy_S27", "SQ010", "Generated"));
   });
 
   it("drops the sequence segment when empty — no hole in the path", async () => {
     const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
     const dest = await resolveSafeDestination(config, naming({ sequence: "" }));
-    expect(dest).toBe(path.join(root, "Galaxy_S27", "SH020", "Generated"));
+    expect(dest).toBe(path.join(root, "Galaxy_S27", "Generated"));
   });
 
   it("throws ROOT_NOT_CONFIGURED when defaultRoot is empty", async () => {
@@ -65,10 +65,10 @@ describe("resolveSafeDestination", () => {
   it("drops the project segment when empty too — Project is optional like every other level (§ Workspace scope widening)", async () => {
     const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
     const dest = await resolveSafeDestination(config, naming({ project: "" }));
-    expect(dest).toBe(path.join(root, "SQ010", "SH020", "Generated"));
+    expect(dest).toBe(path.join(root, "SQ010", "Generated"));
   });
 
-  it("lands directly in Default Root when project/sequence/shot/bucket are all empty", async () => {
+  it("lands directly in Default Root when project/sequence/bucket are all empty", async () => {
     const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
     const dest = await resolveSafeDestination(
       config,

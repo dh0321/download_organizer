@@ -57,7 +57,7 @@ describe("handleRouteFile", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.finalPath).toBe(
-        path.join(root, "Galaxy_S27", "SQ010", "SH020", "Generated", "SH020_IMG_woman_red_dress_closeup_023.png"),
+        path.join(root, "Galaxy_S27", "SQ010", "Generated", "SH020_IMG_woman_red_dress_closeup_v023.png"),
       );
       expect(await readFile(result.finalPath, "utf-8")).toBe("fake png bytes");
     }
@@ -163,7 +163,7 @@ describe("handleRouteFile", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(path.basename(result.finalPath)).toBe("SH020_gemini_023.png");
+      expect(path.basename(result.finalPath)).toBe("SH020_gemini_v023.png");
     }
   });
 });

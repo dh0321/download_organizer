@@ -28,6 +28,8 @@ async function makeJobManager() {
     }),
     loadPersistedIndexCounters: vi.fn(async () => ({})),
     persistIndexCounters: vi.fn(() => {}),
+    loadOrganizeLog: vi.fn(async () => []),
+    persistOrganizeLog: vi.fn(() => {}),
     generateJobId: (() => {
       let n = 0;
       return () => `job-${n++}`;

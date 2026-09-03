@@ -13,6 +13,7 @@ import {
   type PendingAssetStatus,
   type NamingFields,
   type MediaType,
+  type OrganizeLogEntry,
 } from "@ai-asset-saver/shared";
 
 export interface JobManagerDeps {
@@ -22,8 +23,16 @@ export interface JobManagerDeps {
   loadPersistedIndexCounters(): Promise<Record<string, number>>;
   /** Fire-and-forget — never awaited from inside reserveIndexForOrganize (§F-1). */
   persistIndexCounters(snapshot: Record<string, number>): void;
+  loadOrganizeLog(): Promise<OrganizeLogEntry[]>;
+  /** Fire-and-forget, same as persistPendingAssets/persistIndexCounters. */
+  persistOrganizeLog(entries: OrganizeLogEntry[]): void;
   generateJobId(): string;
 }
+
+/** How long an OrganizeLogEntry survives after being written — see
+ * pruneOrganizedIntoLog/emptyInbox. Pruned lazily (no chrome.alarms): every
+ * time the log is written to, entries older than this are dropped too. */
+export const LOG_RETENTION_MS = 2 * 24 * 60 * 60 * 1000;
 
 export interface RegisterPendingAssetParams {
   browserDownloadId?: number;
@@ -50,7 +59,6 @@ export function pendingAssetIndexKey(asset: Pick<PendingAsset, "mediaType" | "na
     : buildIndexKey({
         project: asset.naming.project,
         sequence: asset.naming.sequence,
-        shot: asset.naming.shot,
         bucketId: asset.naming.bucketId,
         mediaType: asset.mediaType,
       });
@@ -59,23 +67,34 @@ export function pendingAssetIndexKey(asset: Pick<PendingAsset, "mediaType" | "na
 export class JobManager {
   private readonly counter: IndexReservationCounter;
   private readonly assets = new Map<string, PendingAsset>();
+  private log: OrganizeLogEntry[];
 
   private constructor(
     private readonly deps: JobManagerDeps,
     initialAssets: Record<string, PendingAsset>,
     initialCounters: Record<string, number>,
+    initialLog: OrganizeLogEntry[],
   ) {
     this.counter = new IndexReservationCounter(initialCounters);
     for (const [id, asset] of Object.entries(initialAssets)) this.assets.set(id, asset);
+    this.log = initialLog;
   }
 
   static async create(deps: JobManagerDeps): Promise<JobManager> {
-    const [assets, counters] = await Promise.all([deps.loadPendingAssets(), deps.loadPersistedIndexCounters()]);
-    return new JobManager(deps, assets, counters);
+    const [assets, counters, log] = await Promise.all([
+      deps.loadPendingAssets(),
+      deps.loadPersistedIndexCounters(),
+      deps.loadOrganizeLog(),
+    ]);
+    return new JobManager(deps, assets, counters, log);
   }
 
   private persist(): void {
     this.deps.persistPendingAssets(Object.fromEntries(this.assets.entries()));
+  }
+
+  private persistLog(): void {
+    this.deps.persistOrganizeLog(this.log);
   }
 
   registerPendingAsset(params: RegisterPendingAssetParams): PendingAsset {
@@ -182,6 +201,87 @@ export class JobManager {
     asset.status = status;
     asset.errorMessage = errorMessage;
     this.persist();
+  }
+
+  /** Organize success path: like setStatus(id, "organized"), but also records
+   * the real destination path so it can later be written to the organize log
+   * (see pruneOrganizedIntoLog/emptyInbox) before the asset itself is cleared
+   * from the active Inbox list. */
+  markOrganized(id: string, finalPath: string): void {
+    const asset = this.assets.get(id);
+    if (!asset) return;
+    asset.status = "organized";
+    asset.finalPath = finalPath;
+    asset.errorMessage = undefined;
+    this.persist();
+  }
+
+  /** Removes a single asset from the tracked list only — never touches the
+   * real file on disk. Refuses "organizing" assets since they're mid-flight
+   * with the Agent; every other status (pending/failed/organized) is
+   * removable. Organized assets are dropped with NO log entry here (compare
+   * pruneOrganizedIntoLog/emptyInbox) since this is a manual per-row dismiss,
+   * not the "already handled, keep a record" auto-cleanup path. */
+  removeAsset(id: string): void {
+    const asset = this.assets.get(id);
+    if (!asset || asset.status === "organizing") return;
+    this.assets.delete(id);
+    this.persist();
+  }
+
+  /** Auto-cleanup: called on every fresh Inbox page load. Moves every
+   * currently-"organized" asset into the organize log (recording where it
+   * went) and removes it from the active list, then prunes any log entries
+   * past LOG_RETENTION_MS. Pending/failed/organizing assets are untouched. */
+  pruneOrganizedIntoLog(): void {
+    const now = Date.now();
+    const beforeLogLength = this.log.length;
+    let assetsChanged = false;
+    for (const [id, asset] of this.assets) {
+      if (asset.status !== "organized") continue;
+      this.log.push({
+        id: this.deps.generateJobId(),
+        originalFilename: asset.originalFilename,
+        finalPath: asset.finalPath ?? "",
+        loggedAt: now,
+      });
+      this.assets.delete(id);
+      assetsChanged = true;
+    }
+    this.log = this.log.filter((entry) => now - entry.loggedAt < LOG_RETENTION_MS);
+    if (assetsChanged) this.persist();
+    if (assetsChanged || this.log.length !== beforeLogLength) this.persistLog();
+  }
+
+  /** "Inbox 비우기": deletes every tracked asset regardless of status
+   * (pending/organizing/organized/failed all removed) — unlike removeAsset,
+   * this is an explicit bulk wipe the user confirmed. Organized assets are
+   * logged first (same as pruneOrganizedIntoLog) so their destination isn't
+   * lost; pending/failed assets never had a destination, so they're just
+   * discarded with no log entry. */
+  emptyInbox(): void {
+    const now = Date.now();
+    for (const asset of this.assets.values()) {
+      if (asset.status !== "organized") continue;
+      this.log.push({
+        id: this.deps.generateJobId(),
+        originalFilename: asset.originalFilename,
+        finalPath: asset.finalPath ?? "",
+        loggedAt: now,
+      });
+    }
+    this.assets.clear();
+    this.log = this.log.filter((entry) => now - entry.loggedAt < LOG_RETENTION_MS);
+    this.persist();
+    this.persistLog();
+  }
+
+  /** Live (not-yet-expired) organize log entries, newest first. */
+  getOrganizeLog(): OrganizeLogEntry[] {
+    const now = Date.now();
+    return this.log
+      .filter((entry) => now - entry.loggedAt < LOG_RETENTION_MS)
+      .sort((a, b) => b.loggedAt - a.loggedAt);
   }
 
   /** Organize flow step: fold the Agent's real on-disk max index (from

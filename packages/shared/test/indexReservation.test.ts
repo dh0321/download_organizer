@@ -4,7 +4,7 @@ import { IndexReservationCounter, buildIndexKey, buildIndexKeyForCustomDirectory
 describe("IndexReservationCounter", () => {
   it("assigns unique, sequential indices for 5 near-simultaneous reservations on the same key", () => {
     const counter = new IndexReservationCounter();
-    const key = buildIndexKey({ project: "Galaxy_S27", sequence: "SQ010", shot: "SH020", bucketId: "generated", mediaType: "image" });
+    const key = buildIndexKey({ project: "Galaxy_S27", sequence: "SQ010", bucketId: "generated", mediaType: "image" });
 
     // Simulates 5 onDeterminingFilename callbacks firing back-to-back: since this is
     // called synchronously with no `await` in between, this is exactly what the
@@ -17,7 +17,7 @@ describe("IndexReservationCounter", () => {
 
   it("keeps the reserved index fixed regardless of completion order", () => {
     const counter = new IndexReservationCounter();
-    const key = buildIndexKey({ project: "P", sequence: "", shot: "SH020", mediaType: "image" });
+    const key = buildIndexKey({ project: "P", sequence: "", mediaType: "image" });
 
     const jobs = [1, 2, 3, 4, 5].map((n) => ({ n, index: counter.reserveNext(key) }));
     // completion order is scrambled (025, 023, 027, 024, 026 in the spec's example) —
@@ -30,8 +30,8 @@ describe("IndexReservationCounter", () => {
 
   it("tracks independent counters per key", () => {
     const counter = new IndexReservationCounter();
-    const keyA = buildIndexKey({ project: "A", sequence: "", shot: "SH010", mediaType: "image" });
-    const keyB = buildIndexKey({ project: "A", sequence: "", shot: "SH020", mediaType: "image" });
+    const keyA = buildIndexKey({ project: "A", sequence: "SQ010", mediaType: "image" });
+    const keyB = buildIndexKey({ project: "A", sequence: "SQ020", mediaType: "image" });
 
     expect(counter.reserveNext(keyA)).toBe(1);
     expect(counter.reserveNext(keyB)).toBe(1);
@@ -83,8 +83,8 @@ describe("buildIndexKeyForCustomDirectory", () => {
   it("never collides with a structured buildIndexKey for the same-looking string", () => {
     // Namespaced with a "custom-dir:" prefix so a custom directory literally
     // named e.g. "generated" can't accidentally share a counter with a
-    // project/sequence/shot/bucket combination that produces the same text.
-    const structured = buildIndexKey({ project: "a", sequence: "", shot: "", bucketId: "generated", mediaType: "image" });
+    // project/sequence/bucket combination that produces the same text.
+    const structured = buildIndexKey({ project: "a", sequence: "", bucketId: "generated", mediaType: "image" });
     const custom = buildIndexKeyForCustomDirectory("a||generated", "image");
     expect(structured).not.toBe(custom);
   });

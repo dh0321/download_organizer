@@ -100,7 +100,7 @@ export async function runOrganizeFlow(deps: OrganizeFlowDeps, assetIds: string[]
 
   for (const result of response.results) {
     if (result.ok) {
-      jobManager.setStatus(result.jobId, "organized");
+      jobManager.markOrganized(result.jobId, result.finalPath ?? "");
     } else {
       jobManager.setStatus(result.jobId, "failed", `${result.code}: ${result.error}`);
     }

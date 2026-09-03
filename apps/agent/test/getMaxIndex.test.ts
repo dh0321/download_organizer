@@ -23,7 +23,7 @@ describe("getMaxIndex", () => {
   });
 
   it("finds the highest existing index among files in the destination folder", async () => {
-    const folder = path.join(root, "Galaxy_S27", "SH020", "Generated");
+    const folder = path.join(root, "Galaxy_S27", "Generated");
     await mkdir(folder, { recursive: true });
     await writeFile(path.join(folder, "SH020_IMG_001.png"), "x");
     await writeFile(path.join(folder, "SH020_IMG_010.png"), "x");

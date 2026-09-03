@@ -239,7 +239,10 @@ body {
 }
 
 .aias-mono {
-  font-family: "SFMono-Regular", ui-monospace, Menlo, monospace;
+  /* Consolas added as the Windows fallback — this project runs on Mac but
+     ships to Windows only, and without it the stack fell through straight to
+     the browser's generic "monospace" there (usually Courier New). */
+  font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
   font-size: 12px;
   word-break: break-all;
   background: var(--color-accent-soft);
@@ -481,6 +484,40 @@ body {
 }
 .aias-inbox-row-badge {
   flex-shrink: 0;
+}
+.aias-inbox-row-dismiss {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.aias-inbox-row-dismiss:hover:not(:disabled) {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+.aias-inbox-row-dismiss:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.aias-organize-log {
+  margin-top: 16px;
+}
+.aias-organize-log-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-top: 1px solid var(--color-border);
+  font-size: 12px;
+}
+.aias-organize-log-item:first-child {
+  border-top: none;
 }
 .aias-inbox-row-text strong {
   display: block;

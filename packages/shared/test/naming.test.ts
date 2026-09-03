@@ -19,36 +19,36 @@ function tokens(overrides: Partial<BuildFilenameTokens> = {}): BuildFilenameToke
 
 describe("buildFilename", () => {
   it("builds the full example from the spec", () => {
-    expect(buildFilename(TEMPLATE, tokens(), ".png")).toBe("SH020_IMG_woman_red_dress_closeup_023.png");
+    expect(buildFilename(TEMPLATE, tokens(), ".png")).toBe("SH020_IMG_woman_red_dress_closeup_v023.png");
   });
 
   it("preserves the original media extension for video", () => {
     expect(buildFilename(TEMPLATE, tokens({ type: "VID", index: 24 }), ".mov")).toBe(
-      "SH020_VID_woman_red_dress_closeup_024.mov",
+      "SH020_VID_woman_red_dress_closeup_v024.mov",
     );
   });
 
   it("drops the description segment (no double separator) when description is empty", () => {
-    expect(buildFilename(TEMPLATE, tokens({ description: "" }), ".png")).toBe("SH020_IMG_023.png");
+    expect(buildFilename(TEMPLATE, tokens({ description: "" }), ".png")).toBe("SH020_IMG_v023.png");
   });
 
   it("drops the description segment when description is whitespace-only", () => {
-    expect(buildFilename(TEMPLATE, tokens({ description: "   " }), ".png")).toBe("SH020_IMG_023.png");
+    expect(buildFilename(TEMPLATE, tokens({ description: "   " }), ".png")).toBe("SH020_IMG_v023.png");
   });
 
-  it("falls back identifier: shot -> sequence -> project -> 'asset'", () => {
-    expect(buildFilename(TEMPLATE, tokens({ shot: "", description: "" }), ".png")).toBe("SQ010_IMG_023.png");
+  it("falls back to 'untitled' when shot is empty — never borrows Project or Sequence, since both are shared across many assets", () => {
+    expect(buildFilename(TEMPLATE, tokens({ shot: "", description: "" }), ".png")).toBe("untitled_IMG_v023.png");
     expect(buildFilename(TEMPLATE, tokens({ shot: "", sequence: "", description: "" }), ".png")).toBe(
-      "Galaxy_S27_IMG_023.png",
+      "untitled_IMG_v023.png",
     );
     expect(
-      buildFilename(TEMPLATE, tokens({ shot: "", sequence: "", project: "", description: "" }), ".png"),
-    ).toBe("asset_IMG_023.png");
+      buildFilename(TEMPLATE, tokens({ shot: "", sequence: "SQ010", project: "Galaxy_S27", description: "" }), ".png"),
+    ).toBe("untitled_IMG_v023.png");
   });
 
-  it("zero-pads the index to 3 digits", () => {
+  it("zero-pads the index to 3 digits, prefixed with 'v'", () => {
     expect(buildFilename(TEMPLATE, tokens({ index: 1 }), ".png")).toBe(
-      "SH020_IMG_woman_red_dress_closeup_001.png",
+      "SH020_IMG_woman_red_dress_closeup_v001.png",
     );
   });
 
@@ -68,20 +68,20 @@ describe("buildFilename", () => {
 
   it("includes the {source} token when present in the template", () => {
     expect(buildFilename("{shot}_{source}_{index}", tokens({ source: "chatgpt" }), ".png")).toBe(
-      "SH020_chatgpt_023.png",
+      "SH020_chatgpt_v023.png",
     );
   });
 
   it("drops the source segment when source is empty", () => {
-    expect(buildFilename("{shot}_{source}_{index}", tokens({ source: "" }), ".png")).toBe("SH020_023.png");
+    expect(buildFilename("{shot}_{source}_{index}", tokens({ source: "" }), ".png")).toBe("SH020_v023.png");
   });
 
   it("uses each token's own value regardless of position — {shot} isn't the only slot eligible for the identifier fallback (regression: a non-shot token at position 0 must not be silently replaced by the fallback chain)", () => {
-    // description at position 0 must use the real description, not the shot/sequence/project fallback
-    expect(buildFilename("{description}_{index}", tokens(), ".png")).toBe("woman_red_dress_closeup_023.png");
-    // {shot} still gets its fallback chain wherever it appears, even mid-template
+    // description at position 0 must use the real description, not the shot fallback
+    expect(buildFilename("{description}_{index}", tokens(), ".png")).toBe("woman_red_dress_closeup_v023.png");
+    // {shot} still falls back to "untitled" wherever it appears, even mid-template
     expect(buildFilename("{description}_{shot}_{index}", tokens({ shot: "" }), ".png")).toBe(
-      "woman_red_dress_closeup_SQ010_023.png",
+      "woman_red_dress_closeup_untitled_v023.png",
     );
   });
 });

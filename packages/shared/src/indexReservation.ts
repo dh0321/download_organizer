@@ -13,15 +13,24 @@
 // correction only — this counter is never the sole authority against disk reality;
 // the Agent's own O_EXCL conflict suffix is the final safety net (see file-router).
 
+/**
+ * Deliberately keyed on the same fields that make up the actual destination
+ * folder (project/sequence/bucket) — NOT shot, which is a filename identifier
+ * rather than a folder level (see DEFAULT_FOLDER_TEMPLATE). Keying on shot
+ * here would desync this in-session reservation counter from the Agent's own
+ * get-max-index reconciliation, which scans the real destination folder and
+ * has no notion of "shot" either — two different Shot/Asset Name values that
+ * land in the same folder must share one counter, the same way the Agent's
+ * on-disk scan already treats that folder as a single sequence.
+ */
 export function buildIndexKey(parts: {
   project: string;
   sequence: string;
-  shot: string;
   bucketId?: string;
   customFolderName?: string;
   mediaType: string;
 }): string {
-  return [parts.project, parts.sequence, parts.shot, parts.bucketId ?? parts.customFolderName ?? "", parts.mediaType]
+  return [parts.project, parts.sequence, parts.bucketId ?? parts.customFolderName ?? "", parts.mediaType]
     .map((p) => p.trim().toLowerCase())
     .join("|");
 }

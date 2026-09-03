@@ -6,6 +6,11 @@
 export const SESSION_STORAGE_KEY = "aiAssetSaver.sessionState";
 export const INDEX_COUNTERS_STORAGE_KEY = "aiAssetSaver.indexCounters";
 export const PENDING_ASSETS_STORAGE_KEY = "aiAssetSaver.pendingAssets";
+/** Short-lived record of "where did this organized file go", written once an
+ * asset is cleared out of PENDING_ASSETS_STORAGE_KEY (see
+ * JobManager.pruneOrganizedIntoLog/emptyInbox) — entries expire after
+ * LOG_RETENTION_MS (see jobManager.ts). */
+export const ORGANIZE_LOG_STORAGE_KEY = "aiAssetSaver.organizeLog";
 /** chrome.storage.session (not .local): a per-browser-session, memory-backed
  * record of "this browserDownloadId was matched as an AI download" — written
  * synchronously in onDeterminingFilename and read back when onChanged reports

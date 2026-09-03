@@ -8,15 +8,22 @@ import {
   splitCustomDirectorySegments,
   type AssetBucket,
   type NamingFields,
+  type OrganizeLogEntry,
   type PendingAsset,
   type SessionState,
 } from "@ai-asset-saver/shared";
 import { loadSessionState, saveSessionState, DEFAULT_SESSION_STATE } from "../background/sessionManager.js";
 import { loadPendingAssets } from "../background/pendingAssetsStorage.js";
+import { loadOrganizeLog } from "../background/organizeLogStorage.js";
 import { pendingAssetIndexKey } from "../background/jobManager.js";
 import type { RescanCandidate } from "../background/rescanDownloads.js";
 import { adapters } from "../adapters/registry.js";
-import { PENDING_ASSETS_STORAGE_KEY, SESSION_STORAGE_KEY, INDEX_COUNTERS_STORAGE_KEY } from "../background/storageKeys.js";
+import {
+  PENDING_ASSETS_STORAGE_KEY,
+  SESSION_STORAGE_KEY,
+  INDEX_COUNTERS_STORAGE_KEY,
+  ORGANIZE_LOG_STORAGE_KEY,
+} from "../background/storageKeys.js";
 import { AgentBadge, type AgentStatus } from "../components/AgentBadge.js";
 import { Combobox } from "../components/Combobox.js";
 import { Field } from "../components/Field.js";
@@ -86,6 +93,28 @@ function dayLabel(ms: number): string {
   return new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+/** Coarse relative time for the "Recently Organized" log — entries only live
+ * for LOG_RETENTION_MS (3 days, see jobManager.ts), so minute/hour/day is
+ * granular enough; never shown alongside a full timestamp. */
+function formatRelativeTime(ms: number): string {
+  const diffMs = Date.now() - ms;
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+/** Inbox list order: newest download first. Applied wherever assets are set
+ * directly from a raw storage snapshot (initial load, storage.onChanged) —
+ * every other setAssets call site only maps/filters the existing array, which
+ * preserves whatever order was already established here. */
+function sortByDownloadedAtDesc(list: PendingAsset[]): PendingAsset[] {
+  return [...list].sort((a, b) => b.downloadedAt - a.downloadedAt);
+}
+
 /**
  * Folder/Filename each show ONE input shared by Auto and Custom (see the plan
  * — Auto/Custom must occupy the exact same slot, and typing into the Auto
@@ -142,11 +171,13 @@ function computePreview(
       }
     }
   } else {
-    // Project/Sequence/Shot/Category are all optional (§ Workspace scope
-    // widening) — any or all may be blank, in which case the file just lands
-    // one level higher. An entirely empty result is a valid "save straight
-    // into Default Root" state, not an error.
-    folderSegments = [asset.naming.project, asset.naming.sequence, asset.naming.shot, bucketLabel]
+    // Project/Sequence/Category are all optional (§ Workspace scope widening)
+    // — any or all may be blank, in which case the file just lands one level
+    // higher. An entirely empty result is a valid "save straight into Default
+    // Root" state, not an error. Shot/Asset Name is deliberately NOT part of
+    // the folder — it's the filename identifier, not a folder level (matches
+    // DEFAULT_FOLDER_TEMPLATE on the Agent side).
+    folderSegments = [asset.naming.project, asset.naming.sequence, bucketLabel]
       .map(stripSeparators)
       .filter(Boolean);
   }
@@ -404,10 +435,14 @@ export function App() {
   const [pathSep, setPathSep] = useState<"\\" | "/">("\\");
   const [pickingFolder, setPickingFolder] = useState(false);
   const [folderPickerError, setFolderPickerError] = useState("");
+  const [organizeLog, setOrganizeLog] = useState<OrganizeLogEntry[]>([]);
+  const [organizeLogExpanded, setOrganizeLogExpanded] = useState(false);
+  const [confirmingEmptyInbox, setConfirmingEmptyInbox] = useState(false);
 
   useEffect(() => {
     loadSessionState().then(setSession);
-    loadPendingAssets().then((map) => setAssets(Object.values(map)));
+    loadPendingAssets().then((map) => setAssets(sortByDownloadedAtDesc(Object.values(map))));
+    loadOrganizeLog().then(setOrganizeLog);
     chrome.storage.local.get(INDEX_COUNTERS_STORAGE_KEY).then((result) => {
       setIndexCounters((result[INDEX_COUNTERS_STORAGE_KEY] as Record<string, number>) ?? {});
     });
@@ -418,11 +453,16 @@ export function App() {
       setAgentStatus(res?.connected ? "connected" : "disconnected");
     });
     chrome.runtime.getPlatformInfo((info) => setPathSep(info.os === "win" ? "\\" : "/"));
+    // Auto-cleanup trigger (§3): every fresh Inbox page load/reload sweeps
+    // already-"organized" assets out of the active list and into the
+    // organize log — see JobManager.pruneOrganizedIntoLog. The resulting
+    // storage changes are picked up by the listener below.
+    chrome.runtime.sendMessage({ type: "aias-prune-organized" });
 
     const listener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
       if (areaName !== "local") return;
       if (changes[PENDING_ASSETS_STORAGE_KEY]) {
-        setAssets(Object.values(changes[PENDING_ASSETS_STORAGE_KEY].newValue ?? {}));
+        setAssets(sortByDownloadedAtDesc(Object.values(changes[PENDING_ASSETS_STORAGE_KEY].newValue ?? {})));
       }
       if (changes[SESSION_STORAGE_KEY]) {
         setSession({ ...DEFAULT_SESSION_STATE, ...changes[SESSION_STORAGE_KEY].newValue });
@@ -430,10 +470,23 @@ export function App() {
       if (changes[INDEX_COUNTERS_STORAGE_KEY]) {
         setIndexCounters(changes[INDEX_COUNTERS_STORAGE_KEY].newValue ?? {});
       }
+      if (changes[ORGANIZE_LOG_STORAGE_KEY]) {
+        setOrganizeLog(changes[ORGANIZE_LOG_STORAGE_KEY].newValue ?? []);
+      }
     };
     chrome.storage.onChanged.addListener(listener);
     return () => chrome.storage.onChanged.removeListener(listener);
   }, []);
+
+  // The "Empty Inbox" button needs a second click within a few seconds to
+  // actually confirm (§3) — never a native confirm() dialog, to match this
+  // page's own custom UI style. Resets automatically if the user doesn't
+  // follow through.
+  useEffect(() => {
+    if (!confirmingEmptyInbox) return;
+    const t = setTimeout(() => setConfirmingEmptyInbox(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirmingEmptyInbox]);
 
   const organizable = useMemo(() => assets.filter((a) => ORGANIZABLE.has(a.status)), [assets]);
   const selected = useMemo(() => organizable.filter((a) => a.selected), [organizable]);
@@ -586,6 +639,25 @@ export function App() {
     chrome.runtime.sendMessage({ type: "aias-apply-defaults-to-selected", defaults });
   }
 
+  /** Untracks a single asset — never touches the real file on disk (§4). */
+  function removeAsset(id: string) {
+    setAssets((prev) => prev.filter((a) => a.id !== id));
+    chrome.runtime.sendMessage({ type: "aias-remove-asset", id });
+  }
+
+  /** Deletes every tracked asset regardless of status (§3) — requires a
+   * second click within a few seconds to confirm, since it's irreversible
+   * for not-yet-organized work. */
+  function emptyInbox() {
+    if (!confirmingEmptyInbox) {
+      setConfirmingEmptyInbox(true);
+      return;
+    }
+    setConfirmingEmptyInbox(false);
+    setAssets([]);
+    chrome.runtime.sendMessage({ type: "aias-empty-inbox" });
+  }
+
   function organize() {
     setOrganizing(true);
     setOrganizeError("");
@@ -714,6 +786,9 @@ export function App() {
                   <button className="aias-btn aias-btn-ghost aias-btn-sm" disabled={rescanning} onClick={rescanDownloads}>
                     {rescanning ? "Scanning…" : "Rescan Downloads"}
                   </button>
+                  <button className="aias-btn aias-btn-ghost aias-btn-sm" onClick={emptyInbox}>
+                    {confirmingEmptyInbox ? "Click again to confirm" : "Empty Inbox"}
+                  </button>
                   <button
                     className="aias-btn aias-btn-ghost aias-btn-sm"
                     disabled={organizable.length === 0}
@@ -753,6 +828,22 @@ export function App() {
                         <span className="aias-badge-dot" />
                         {STATUS_LABEL(asset.status)}
                       </span>
+                      <button
+                        type="button"
+                        className="aias-inbox-row-dismiss"
+                        disabled={asset.status === "organizing"}
+                        title={
+                          asset.status === "organizing"
+                            ? "Can't remove while organizing"
+                            : "Remove from Inbox (keeps the file in Downloads)"
+                        }
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeAsset(asset.id);
+                        }}
+                      >
+                        ×
+                      </button>
                     </div>
                   );
                 })}
@@ -823,6 +914,7 @@ export function App() {
                       />
                       <label className="aias-field">
                         Source
+                        <span className="aias-field-optional">optional</span>
                         <Combobox
                           value={asset.source}
                           options={SOURCE_SUGGESTIONS}
@@ -967,6 +1059,31 @@ export function App() {
                 );
               })()}
             </div>
+          </div>
+        )}
+
+        {organizeLog.length > 0 && (
+          <div className="aias-card aias-organize-log">
+            <div
+              className="aias-row"
+              style={{ cursor: "pointer" }}
+              onClick={() => setOrganizeLogExpanded((v) => !v)}
+            >
+              <p className="aias-card-title" style={{ margin: 0 }}>
+                {organizeLogExpanded ? "▾" : "▸"} Recently Organized ({organizeLog.length})
+              </p>
+            </div>
+            {organizeLogExpanded &&
+              organizeLog.map((entry) => (
+                <div key={entry.id} className="aias-organize-log-item">
+                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {entry.originalFilename} → <span className="aias-mono">{entry.finalPath || "(no destination recorded)"}</span>
+                  </span>
+                  <span className="aias-subtext" style={{ margin: 0, flexShrink: 0 }}>
+                    {formatRelativeTime(entry.loggedAt)}
+                  </span>
+                </div>
+              ))}
           </div>
         )}
 

@@ -147,12 +147,32 @@ export interface PendingAsset {
   downloadedAt: number;
   status: PendingAssetStatus;
   errorMessage?: string;
+  /** Set only once status becomes "organized" — the real destination path
+   * reported by the Agent's organize-batch result, kept so the asset can
+   * later be logged (see OrganizeLogEntry) before it's cleared from the
+   * active Inbox list. */
+  finalPath?: string;
   /** UI multi-select state, persisted so it survives a popup/tab close+reopen. */
   selected: boolean;
   /** Folder/filename Auto vs Custom is expressed by the existing
    * customDirectoryEnabled/customFilenameEnabled flags already on NamingFields —
    * no separate mode enum needed, single source of truth. */
   naming: NamingFields;
+}
+
+/** A record of where an organized file ended up, kept for a short retention
+ * window after the asset itself has been cleared from the active Inbox list
+ * (see JobManager.pruneOrganizedIntoLog/emptyInbox) so the user can still look
+ * up "where did this go" after it disappears from the main list. */
+export interface OrganizeLogEntry {
+  id: string;
+  originalFilename: string;
+  finalPath: string;
+  /** When this entry was written (i.e. when the asset was pruned/cleared from
+   * the active list) — not necessarily the exact moment Organize finished,
+   * since pruning happens lazily on the next Inbox page load. Used as the
+   * basis for the retention-window expiry. */
+  loggedAt: number;
 }
 
 /** One item in a batch "Organize" request — same shape as a "route-file"

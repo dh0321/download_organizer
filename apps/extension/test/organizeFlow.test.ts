@@ -26,6 +26,8 @@ async function makeJobManager() {
     persistPendingAssets: vi.fn(),
     loadPersistedIndexCounters: vi.fn(async () => ({})),
     persistIndexCounters: vi.fn(),
+    loadOrganizeLog: vi.fn(async () => []),
+    persistOrganizeLog: vi.fn(),
     generateJobId: (() => {
       let n = 0;
       return () => `job-${n++}`;
@@ -51,7 +53,10 @@ describe("runOrganizeFlow", () => {
   it("organizes every selected asset and marks them 'organized' on success", async () => {
     const jm = await makeJobManager();
     const a1 = register(jm, { browserDownloadId: 1 });
-    const a2 = register(jm, { browserDownloadId: 2, naming: naming({ shot: "SH030" }) });
+    // Shot/Asset Name is a filename identifier, not a folder level (see
+    // DEFAULT_FOLDER_TEMPLATE) — differ by sequence instead to get a genuinely
+    // distinct destination folder/index key.
+    const a2 = register(jm, { browserDownloadId: 2, naming: naming({ sequence: "SQ020" }) });
 
     const sendToAgent = vi.fn(async (req: NativeRequest): Promise<NativeResponse> => {
       if (req.type === "get-max-index") return { type: "get-max-index-result", maxIndex: 0 };
@@ -69,7 +74,12 @@ describe("runOrganizeFlow", () => {
     expect(result.ok).toBe(true);
     expect(jm.get(a1.id)?.status).toBe("organized");
     expect(jm.get(a2.id)?.status).toBe("organized");
-    // two distinct destinations (different shot) -> two get-max-index calls + one organize-batch
+    // finalPath from the Agent's organize-batch result must be captured on the
+    // asset, not discarded — it's what the organize log (see jobManager.ts's
+    // pruneOrganizedIntoLog) later records as "where did this file go".
+    expect(jm.get(a1.id)?.finalPath).toBe(`/dest/${a1.id}.png`);
+    expect(jm.get(a2.id)?.finalPath).toBe(`/dest/${a2.id}.png`);
+    // two distinct destinations (different sequence) -> two get-max-index calls + one organize-batch
     expect(sendToAgent.mock.calls.filter((c) => c[0].type === "get-max-index")).toHaveLength(2);
     expect(sendToAgent.mock.calls.filter((c) => c[0].type === "organize-batch")).toHaveLength(1);
   });
@@ -77,7 +87,7 @@ describe("runOrganizeFlow", () => {
   it("assigns sequential reservedIndex values for assets sharing the same destination key", async () => {
     const jm = await makeJobManager();
     const a1 = register(jm, { browserDownloadId: 1 });
-    const a2 = register(jm, { browserDownloadId: 2 }); // same project/sequence/shot/bucket -> same key
+    const a2 = register(jm, { browserDownloadId: 2 }); // same project/sequence/bucket -> same key
 
     let capturedItems: { jobId: string; reservedIndex: number }[] = [];
     const sendToAgent = vi.fn(async (req: NativeRequest): Promise<NativeResponse> => {

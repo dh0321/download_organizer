@@ -8,13 +8,18 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { AgentConfig, FolderTemplate, AssetBucket } from "@ai-asset-saver/shared";
 
+// Shot/Name is deliberately NOT a folder level — it's the per-asset filename
+// identifier (see naming.ts's identifier fallback chain), not a place to file
+// things under. Folding it into the folder path meant every distinctly-named
+// asset (e.g. "HeroCharacter" vs "Turntable") got its own one-off subfolder
+// instead of landing together under Project/Sequence/Category like everything
+// else — confirmed as unwanted behavior, not a deliberate hierarchy level.
 export const DEFAULT_FOLDER_TEMPLATE: FolderTemplate = {
   id: "default",
-  name: "Project / Sequence / Shot",
+  name: "Project / Sequence",
   levels: [
     { key: "project", label: "Project", order: 0, required: false },
     { key: "sequence", label: "Sequence", order: 1, required: false },
-    { key: "shot", label: "Shot / Name", order: 2, required: false },
   ],
 };
 
