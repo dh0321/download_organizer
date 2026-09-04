@@ -438,6 +438,7 @@ export function App() {
   const [organizeLog, setOrganizeLog] = useState<OrganizeLogEntry[]>([]);
   const [organizeLogExpanded, setOrganizeLogExpanded] = useState(false);
   const [confirmingEmptyInbox, setConfirmingEmptyInbox] = useState(false);
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "image" | "video">("all");
 
   useEffect(() => {
     loadSessionState().then(setSession);
@@ -490,7 +491,19 @@ export function App() {
 
   const organizable = useMemo(() => assets.filter((a) => ORGANIZABLE.has(a.status)), [assets]);
   const selected = useMemo(() => organizable.filter((a) => a.selected), [organizable]);
-  const allSelected = organizable.length > 0 && organizable.every((a) => a.selected);
+
+  // The media-type filter only changes what the list PANE shows — it never
+  // clears or limits the actual selection/Organize target (that stays keyed
+  // off `organizable`/`selected` above, unfiltered). "Select all" is the one
+  // control scoped to the filtered view, so it never silently
+  // selects/deselects an asset the user can't currently see (same guard
+  // jobManager.ts's setSelectedByIds was already built for).
+  const visibleAssets = useMemo(
+    () => (mediaTypeFilter === "all" ? assets : assets.filter((a) => a.mediaType === mediaTypeFilter)),
+    [assets, mediaTypeFilter],
+  );
+  const visibleOrganizable = useMemo(() => visibleAssets.filter((a) => ORGANIZABLE.has(a.status)), [visibleAssets]);
+  const visibleAllSelected = visibleOrganizable.length > 0 && visibleOrganizable.every((a) => a.selected);
 
   // Keep the focused (right-panel) asset valid as the asset list changes —
   // default to the first asset, or nothing if the list is empty.
@@ -576,8 +589,8 @@ export function App() {
   }
 
   function toggleSelectAll() {
-    const next = !allSelected;
-    const ids = organizable.map((a) => a.id);
+    const next = !visibleAllSelected;
+    const ids = visibleOrganizable.map((a) => a.id);
     const idSet = new Set(ids);
     setAssets((prev) => prev.map((a) => (idSet.has(a.id) ? { ...a, selected: next } : a)));
     chrome.runtime.sendMessage({ type: "aias-set-selected-many", ids, selected: next });
@@ -774,7 +787,9 @@ export function App() {
                     Inbox
                   </p>
                   <span className="aias-subtext" style={{ margin: 0 }}>
-                    {assets.length} file{assets.length === 1 ? "" : "s"}
+                    {mediaTypeFilter === "all"
+                      ? `${assets.length} file${assets.length === 1 ? "" : "s"}`
+                      : `${visibleAssets.length} of ${assets.length} file${assets.length === 1 ? "" : "s"}`}
                   </span>
                 </div>
                 {rescanMessage && (
@@ -791,16 +806,37 @@ export function App() {
                   </button>
                   <button
                     className="aias-btn aias-btn-ghost aias-btn-sm"
-                    disabled={organizable.length === 0}
+                    disabled={visibleOrganizable.length === 0}
                     onClick={toggleSelectAll}
                   >
-                    {allSelected ? "Deselect all" : "Select all"}
+                    {visibleAllSelected ? "Deselect all" : "Select all"}
                   </button>
                 </div>
               </div>
 
+              <div className="aias-inbox-filter">
+                <span className="aias-inbox-filter-label">Filter</span>
+                <div className="aias-segmented">
+                  {(["all", "image", "video"] as const).map((f) => (
+                    <button
+                      key={f}
+                      type="button"
+                      className={mediaTypeFilter === f ? "active" : ""}
+                      onClick={() => setMediaTypeFilter(f)}
+                    >
+                      {f === "all" ? "All" : f === "image" ? "Images" : "Videos"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="aias-inbox-list">
-                {assets.map((asset) => {
+                {visibleAssets.length === 0 && (
+                  <p className="aias-subtext" style={{ margin: "16px" }}>
+                    No {mediaTypeFilter === "image" ? "images" : "videos"} in the Inbox right now.
+                  </p>
+                )}
+                {visibleAssets.map((asset) => {
                   const rowDisabled = !ORGANIZABLE.has(asset.status);
                   return (
                     <div

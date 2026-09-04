@@ -33,18 +33,14 @@ export function findMatchingAdapter(ctx: Parameters<AISourceAdapter["matchesDown
   return adapters.find((adapter) => adapter.matchesDownload(ctx));
 }
 
-export const SUPPORTED_EXTENSIONS = new Set([
-  ".png",
-  ".jpg",
-  ".jpeg",
-  ".webp",
-  ".mov",
-  ".mp4",
-  ".webm",
-]);
+const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif", ".heic", ".heif", ".tif", ".tiff"];
+const VIDEO_EXTENSIONS = [".mov", ".mp4", ".webm", ".avi", ".mkv", ".m4v", ".wmv", ".flv", ".mpeg", ".mpg"];
 
+/** The single gate deciding whether a download/on-disk file is tracked at all
+ * (both live Watch Mode detection and Rescan's folder scan call this) — an
+ * extension missing here is silently invisible everywhere, never an error. */
 export function mediaTypeForExtension(extension: string): "image" | "video" | undefined {
-  if ([".png", ".jpg", ".jpeg", ".webp"].includes(extension)) return "image";
-  if ([".mov", ".mp4", ".webm"].includes(extension)) return "video";
+  if (IMAGE_EXTENSIONS.includes(extension)) return "image";
+  if (VIDEO_EXTENSIONS.includes(extension)) return "video";
   return undefined;
 }

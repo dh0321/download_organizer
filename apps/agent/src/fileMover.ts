@@ -58,7 +58,12 @@ export async function moveIntoDestination(
   extension: string,
   options: MoveOptions = {},
 ): Promise<string> {
-  const ioTimeoutMs = options.ioTimeoutMs ?? 30_000;
+  // 2 minutes per fs operation — the copy step in particular needs real
+  // headroom for large video files landing on a slow/external/networked
+  // destination; 30s was sized for small images and timed out too easily
+  // once video became a meaningful share of traffic. Still a real safety net
+  // against a genuinely hung NAS, just not a hair-trigger one.
+  const ioTimeoutMs = options.ioTimeoutMs ?? 120_000;
   const unlinkFn = options.unlinkFn ?? unlink;
 
   let sourceStat;

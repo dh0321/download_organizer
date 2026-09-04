@@ -202,7 +202,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "aias-organize") {
     void jobManagerPromise.then(async (jm) => {
       const result = await runOrganizeFlow(
-        { jobManager: jm, sendToAgent: (req) => nativeClient.send(req) },
+        { jobManager: jm, sendToAgent: (req, timeoutMs) => nativeClient.send(req, timeoutMs) },
         message.ids,
       );
       updateBadge(jm);

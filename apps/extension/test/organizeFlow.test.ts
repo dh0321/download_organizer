@@ -192,4 +192,30 @@ describe("runOrganizeFlow", () => {
     expect(result).toEqual({ ok: true, results: [] });
     expect(sendToAgent).not.toHaveBeenCalled();
   });
+
+  it("scales the organize-batch native-messaging timeout with the number of items — large video batches need real headroom, not the generic fast-round-trip default", async () => {
+    const jm = await makeJobManager();
+    const a1 = register(jm, { browserDownloadId: 1 });
+    const a2 = register(jm, { browserDownloadId: 2, naming: naming({ sequence: "SQ020" }) });
+
+    let capturedTimeoutMs: number | undefined;
+    const sendToAgent = vi.fn(async (req: NativeRequest, timeoutMs?: number): Promise<NativeResponse> => {
+      if (req.type === "get-max-index") return { type: "get-max-index-result", maxIndex: 0 };
+      if (req.type === "organize-batch") {
+        capturedTimeoutMs = timeoutMs;
+        return { type: "organize-batch-result", results: req.items.map((i) => ({ jobId: i.jobId, ok: true, finalPath: "x" })) };
+      }
+      throw new Error("unexpected");
+    });
+
+    await runOrganizeFlow({ jobManager: jm, sendToAgent }, [a1.id, a2.id]);
+
+    // 2 items -> base (60s) + 2 * per-item (60s) = 180s, well beyond the
+    // generic default (nativeClient's DEFAULT_TIMEOUT_MS is 15s).
+    expect(capturedTimeoutMs).toBe(180_000);
+    // get-max-index round trips are fast metadata lookups — left on the
+    // default timeout (no explicit second argument).
+    const getMaxIndexCalls = sendToAgent.mock.calls.filter((c) => c[0].type === "get-max-index");
+    expect(getMaxIndexCalls.every((c) => c[1] === undefined)).toBe(true);
+  });
 });

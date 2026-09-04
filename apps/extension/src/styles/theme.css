@@ -459,6 +459,33 @@ body {
   gap: 6px;
   margin-top: 8px;
 }
+/* Deliberately NOT styled like the ghost-button action row below it (Rescan/
+   Empty Inbox/Select all) — a filter changes what you SEE, not an action you
+   trigger, so it gets its own single continuous track (.aias-segmented,
+   already used for Auto/Custom toggles) instead of separate outlined
+   buttons, plus a small label so it doesn't read as just another button. */
+.aias-inbox-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 8px 10px;
+  padding: 5px 10px;
+  /* White card + border against the (also white) list pane so the box reads
+     as its own unit by outline, while the segmented control's own gray
+     track (below) still shows clear contrast inside it. No shadow, and
+     wider/shorter than a default card — reads as a flat, wide strip rather
+     than a floating panel. */
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+.aias-inbox-filter-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
 .aias-inbox-list {
   overflow-y: auto;
   max-height: 560px;
@@ -470,6 +497,12 @@ body {
   padding: 10px 16px;
   border-top: 1px solid var(--color-border);
   cursor: pointer;
+  /* Chromium-only (fine here — this only ever renders inside a Chrome
+     extension page): skips layout/paint for off-screen rows so a long,
+     un-cleared Inbox list (or a large Rescan picker result) stays cheap to
+     render without needing a JS virtual-scroll library. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 58px;
 }
 .aias-inbox-row:hover {
   background: var(--color-accent-soft);

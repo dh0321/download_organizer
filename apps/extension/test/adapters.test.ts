@@ -172,13 +172,13 @@ describe("findMatchingAdapter (registry)", () => {
 
 describe("mediaTypeForExtension", () => {
   it("classifies supported image extensions", () => {
-    for (const ext of [".png", ".jpg", ".jpeg", ".webp"]) {
+    for (const ext of [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".avif", ".heic", ".heif", ".tif", ".tiff"]) {
       expect(mediaTypeForExtension(ext)).toBe("image");
     }
   });
 
   it("classifies supported video extensions", () => {
-    for (const ext of [".mov", ".mp4", ".webm"]) {
+    for (const ext of [".mov", ".mp4", ".webm", ".avi", ".mkv", ".m4v", ".wmv", ".flv", ".mpeg", ".mpg"]) {
       expect(mediaTypeForExtension(ext)).toBe("video");
     }
   });

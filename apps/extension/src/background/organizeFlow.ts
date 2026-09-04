@@ -10,13 +10,25 @@ import { JobManager, pendingAssetIndexKey } from "./jobManager.js";
 
 export interface OrganizeFlowDeps {
   jobManager: JobManager;
-  sendToAgent(req: NativeRequest): Promise<NativeResponse>;
+  sendToAgent(req: NativeRequest, timeoutMs?: number): Promise<NativeResponse>;
 }
 
 export interface OrganizeFlowResult {
   ok: boolean;
   results?: OrganizeBatchItemResult[];
   error?: string;
+}
+
+/** organize-batch moves real files (large videos especially, on possibly slow
+ * or networked destinations) — the generic default timeout (see
+ * nativeClient.ts's DEFAULT_TIMEOUT_MS, sized for quick metadata round trips)
+ * is nowhere near enough for that. Scaled by item count so a big batch gets
+ * proportionally more time; a fast image batch just never comes close to
+ * hitting it. */
+function organizeBatchTimeoutMs(itemCount: number): number {
+  const BASE_MS = 60_000;
+  const PER_ITEM_MS = 60_000;
+  return BASE_MS + itemCount * PER_ITEM_MS;
 }
 
 export async function runOrganizeFlow(deps: OrganizeFlowDeps, assetIds: string[]): Promise<OrganizeFlowResult> {
@@ -82,7 +94,7 @@ export async function runOrganizeFlow(deps: OrganizeFlowDeps, assetIds: string[]
   // Isolation is enforced Agent-side — see dispatch.ts's "organize-batch" case).
   let response: NativeResponse;
   try {
-    response = await deps.sendToAgent({ type: "organize-batch", items });
+    response = await deps.sendToAgent({ type: "organize-batch", items }, organizeBatchTimeoutMs(items.length));
   } catch (err) {
     // Agent dropped mid-flight — never leave anything stuck in "organizing".
     for (const asset of assets) {
