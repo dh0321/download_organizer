@@ -7,6 +7,7 @@ import {
   buildFilename,
   splitCustomDirectorySegments,
   type AssetBucket,
+  type MediaType,
   type NamingFields,
   type OrganizeLogEntry,
   type PendingAsset,
@@ -42,6 +43,18 @@ const DEFAULT_BUCKETS: AssetBucket[] = [
 ];
 
 const ORGANIZABLE = new Set(["pending", "failed"]);
+
+// Mirrors apps/agent/src/routeFile.ts's TYPE_LABEL exactly (kept in sync by
+// hand — the Agent computes the real filename, this is only a preview) —
+// a Record<MediaType, string> so TypeScript flags a missing branch here too.
+const TYPE_LABEL: Record<MediaType, string> = { image: "IMG", video: "VID", audio: "AUD" };
+
+const FILTER_LABEL: Record<"all" | MediaType, string> = {
+  all: "All",
+  image: "Images",
+  video: "Videos",
+  audio: "Audio",
+};
 
 // buildFilename() already handles any {token} combination generically (see
 // naming.ts), so letting the user freely toggle which tokens are in the
@@ -201,7 +214,7 @@ function computePreview(
           sequence: asset.naming.sequence,
           shot: asset.naming.shot,
           description: asset.naming.description,
-          type: asset.mediaType === "image" ? "IMG" : "VID",
+          type: TYPE_LABEL[asset.mediaType],
           index: previewIndex,
           source: asset.source,
           customFilenameEnabled: asset.naming.customFilenameEnabled,
@@ -420,6 +433,7 @@ export function App() {
   const [pickerError, setPickerError] = useState("");
   const [organizing, setOrganizing] = useState(false);
   const [organizeError, setOrganizeError] = useState("");
+  const [organizeProgress, setOrganizeProgress] = useState<{ completed: number; total: number } | null>(null);
   const [rescanning, setRescanning] = useState(false);
   const [rescanMessage, setRescanMessage] = useState("");
   const [rescanCandidates, setRescanCandidates] = useState<RescanCandidate[] | null>(null);
@@ -438,7 +452,8 @@ export function App() {
   const [organizeLog, setOrganizeLog] = useState<OrganizeLogEntry[]>([]);
   const [organizeLogExpanded, setOrganizeLogExpanded] = useState(false);
   const [confirmingEmptyInbox, setConfirmingEmptyInbox] = useState(false);
-  const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | "image" | "video">("all");
+  const [mediaTypeFilter, setMediaTypeFilter] = useState<"all" | MediaType>("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     loadSessionState().then(setSession);
@@ -476,7 +491,23 @@ export function App() {
       }
     };
     chrome.storage.onChanged.addListener(listener);
-    return () => chrome.storage.onChanged.removeListener(listener);
+
+    // Real per-item Organize progress, broadcast by the background service
+    // worker (see background/index.ts's NativeClient.onOrganizeProgress) —
+    // replaces the static "Organizing…" label with "Organizing N of M…" once
+    // large/slow batches can legitimately take minutes.
+    const progressListener = (message: { type?: string; completed?: number; total?: number }) => {
+      if (message?.type !== "aias-organize-progress") return;
+      if (typeof message.completed === "number" && typeof message.total === "number") {
+        setOrganizeProgress({ completed: message.completed, total: message.total });
+      }
+    };
+    chrome.runtime.onMessage.addListener(progressListener);
+
+    return () => {
+      chrome.storage.onChanged.removeListener(listener);
+      chrome.runtime.onMessage.removeListener(progressListener);
+    };
   }, []);
 
   // The "Empty Inbox" button needs a second click within a few seconds to
@@ -492,16 +523,20 @@ export function App() {
   const organizable = useMemo(() => assets.filter((a) => ORGANIZABLE.has(a.status)), [assets]);
   const selected = useMemo(() => organizable.filter((a) => a.selected), [organizable]);
 
-  // The media-type filter only changes what the list PANE shows — it never
-  // clears or limits the actual selection/Organize target (that stays keyed
-  // off `organizable`/`selected` above, unfiltered). "Select all" is the one
-  // control scoped to the filtered view, so it never silently
-  // selects/deselects an asset the user can't currently see (same guard
-  // jobManager.ts's setSelectedByIds was already built for).
-  const visibleAssets = useMemo(
-    () => (mediaTypeFilter === "all" ? assets : assets.filter((a) => a.mediaType === mediaTypeFilter)),
-    [assets, mediaTypeFilter],
-  );
+  // The media-type filter and filename search only change what the list PANE
+  // shows — neither ever clears or limits the actual selection/Organize
+  // target (that stays keyed off `organizable`/`selected` above, unfiltered).
+  // "Select all" is the one control scoped to the filtered view, so it never
+  // silently selects/deselects an asset the user can't currently see (same
+  // guard jobManager.ts's setSelectedByIds was already built for).
+  const visibleAssets = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return assets.filter((a) => {
+      if (mediaTypeFilter !== "all" && a.mediaType !== mediaTypeFilter) return false;
+      if (q && !a.originalFilename.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [assets, mediaTypeFilter, searchQuery]);
   const visibleOrganizable = useMemo(() => visibleAssets.filter((a) => ORGANIZABLE.has(a.status)), [visibleAssets]);
   const visibleAllSelected = visibleOrganizable.length > 0 && visibleOrganizable.every((a) => a.selected);
 
@@ -674,9 +709,11 @@ export function App() {
   function organize() {
     setOrganizing(true);
     setOrganizeError("");
+    setOrganizeProgress(null);
     const ids = selected.map((a) => a.id);
     chrome.runtime.sendMessage({ type: "aias-organize", ids }, (res) => {
       setOrganizing(false);
+      setOrganizeProgress(null);
       if (!res?.ok) setOrganizeError(res?.error ?? "Organize failed");
     });
   }
@@ -787,7 +824,7 @@ export function App() {
                     Inbox
                   </p>
                   <span className="aias-subtext" style={{ margin: 0 }}>
-                    {mediaTypeFilter === "all"
+                    {mediaTypeFilter === "all" && !searchQuery.trim()
                       ? `${assets.length} file${assets.length === 1 ? "" : "s"}`
                       : `${visibleAssets.length} of ${assets.length} file${assets.length === 1 ? "" : "s"}`}
                   </span>
@@ -815,25 +852,36 @@ export function App() {
               </div>
 
               <div className="aias-inbox-filter">
-                <span className="aias-inbox-filter-label">Filter</span>
-                <div className="aias-segmented">
-                  {(["all", "image", "video"] as const).map((f) => (
-                    <button
-                      key={f}
-                      type="button"
-                      className={mediaTypeFilter === f ? "active" : ""}
-                      onClick={() => setMediaTypeFilter(f)}
-                    >
-                      {f === "all" ? "All" : f === "image" ? "Images" : "Videos"}
-                    </button>
-                  ))}
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="aias-inbox-filter-label">Filter</span>
+                  <div className="aias-segmented">
+                    {(["all", "image", "video", "audio"] as const).map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        className={mediaTypeFilter === f ? "active" : ""}
+                        onClick={() => setMediaTypeFilter(f)}
+                      >
+                        {FILTER_LABEL[f]}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+                <input
+                  className="aias-input"
+                  style={{ margin: 0 }}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search filename…"
+                />
               </div>
 
               <div className="aias-inbox-list">
                 {visibleAssets.length === 0 && (
                   <p className="aias-subtext" style={{ margin: "16px" }}>
-                    No {mediaTypeFilter === "image" ? "images" : "videos"} in the Inbox right now.
+                    {searchQuery.trim()
+                      ? `No files match "${searchQuery.trim()}".`
+                      : `No ${FILTER_LABEL[mediaTypeFilter].toLowerCase()} in the Inbox right now.`}
                   </p>
                 )}
                 {visibleAssets.map((asset) => {
@@ -1147,7 +1195,11 @@ export function App() {
               disabled={selected.length === 0 || organizing || agentStatus !== "connected"}
               onClick={organize}
             >
-              {organizing ? "Organizing…" : `Organize ${selected.length} Asset${selected.length === 1 ? "" : "s"}`}
+              {organizing
+                ? organizeProgress
+                  ? `Organizing ${organizeProgress.completed} of ${organizeProgress.total}…`
+                  : "Organizing…"
+                : `Organize ${selected.length} Asset${selected.length === 1 ? "" : "s"}`}
             </button>
           </div>
         </div>

@@ -8,7 +8,7 @@ import { buildFilename, type AgentConfig, type MediaType, type NativeRequest, ty
 import { resolveSafeDestination, isWithinRoot, RoutingError } from "./fileRouter.js";
 import { moveIntoDestination } from "./fileMover.js";
 
-const TYPE_LABEL: Record<MediaType, string> = { image: "IMG", video: "VID" };
+const TYPE_LABEL: Record<MediaType, string> = { image: "IMG", video: "VID", audio: "AUD" };
 
 /**
  * §F-2 defense-in-depth, relaxed for the Inbox/Organize flow (§4/§13 of the plan):

@@ -54,12 +54,23 @@ export class NativeClientDisconnectedError extends Error {}
  * after a disconnect, rather than eagerly retrying in the background, so an idle
  * AI Session OFF period never keeps attempting a connection (§F-2 Safety Boundary).
  */
+type OrganizeProgressListener = (completed: number, total: number) => void;
+
 export class NativeClient {
   private port: NativePort | null = null;
   private pendingByJobId = new Map<string, PendingEntry>();
   private pendingByType = new Map<NativeResponse["type"], PendingEntry[]>();
+  private organizeProgressListeners = new Set<OrganizeProgressListener>();
 
   constructor(private readonly connectNativeFn: ConnectNativeFn = defaultConnectNative) {}
+
+  /** "organize-progress" is an unsolicited push from the Agent (see
+   * dispatch.ts's organize-batch case), not a response to any particular
+   * send() call — subscribe here instead. Returns an unsubscribe function. */
+  onOrganizeProgress(cb: OrganizeProgressListener): () => void {
+    this.organizeProgressListeners.add(cb);
+    return () => this.organizeProgressListeners.delete(cb);
+  }
 
   private ensureConnected(): NativePort {
     if (this.port) return this.port;
@@ -90,6 +101,13 @@ export class NativeClient {
   }
 
   private handleMessage(msg: NativeResponse): void {
+    if (msg.type === "organize-progress") {
+      // Never touches pendingByJobId/pendingByType — this isn't a response to
+      // any awaited send() call, just a push notification for anyone listening.
+      for (const cb of this.organizeProgressListeners) cb(msg.completed, msg.total);
+      return;
+    }
+
     if (msg.type === "route-file-result") {
       const entry = this.pendingByJobId.get(msg.jobId);
       if (!entry) return; // no longer awaited (e.g. timed out already) — drop silently

@@ -63,6 +63,21 @@ describe("handleRouteFile", () => {
     }
   });
 
+  it("uses the 'AUD' type label for audio files", async () => {
+    const src = path.join(downloadsDir, "voice.mp3");
+    await writeFile(src, "fake mp3 bytes");
+
+    const config = { ...defaultAgentConfig("ext-id"), defaultRoot: root };
+    const result = await handleRouteFile(config, req({ sourcePath: src, extension: ".mp3", mediaType: "audio" }), downloadsDir);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.finalPath).toBe(
+        path.join(root, "Galaxy_S27", "SQ010", "Generated", "SH020_AUD_woman_red_dress_closeup_v023.mp3"),
+      );
+    }
+  });
+
   it("rejects a sourcePath outside the OS Downloads folder (§F-2)", async () => {
     const outsideDir = await mkdtemp(path.join(tmpdir(), "aias-not-downloads-"));
     const outsideSrc = path.join(outsideDir, "not-in-downloads.png");

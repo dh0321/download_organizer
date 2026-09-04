@@ -19,6 +19,11 @@ export interface DispatchDeps {
    * ~/Downloads contents (see routeFile.ts's assertWithinDownloads). Omit in
    * production to use the real OS default. */
   downloadsRoot?: string;
+  /** Called once per completed item during "organize-batch", before the final
+   * response — lets the caller (index.ts) push an "organize-progress" message
+   * to the Extension mid-batch. Optional so every other request type/existing
+   * test setup is unaffected. */
+  onOrganizeProgress?: (completed: number, total: number) => void;
 }
 
 export async function dispatch(deps: DispatchDeps, req: NativeRequest): Promise<NativeResponse> {
@@ -54,6 +59,7 @@ export async function dispatch(deps: DispatchDeps, req: NativeRequest): Promise<
       // (same worker-pool concurrency limit, same Failure Isolation: a rejection
       // from one item can never affect another since handleRouteFile always
       // resolves, never rejects, even on error).
+      let completed = 0;
       const results: OrganizeBatchItemResult[] = await Promise.all(
         req.items.map(async (item) => {
           const result = await deps.jobQueue.submit(() =>
@@ -72,6 +78,8 @@ export async function dispatch(deps: DispatchDeps, req: NativeRequest): Promise<
               deps.downloadsRoot,
             ),
           );
+          completed += 1;
+          deps.onOrganizeProgress?.(completed, req.items.length);
           return result.ok
             ? { jobId: item.jobId, ok: true as const, finalPath: result.finalPath }
             : { jobId: item.jobId, ok: false as const, error: result.error, code: result.code };

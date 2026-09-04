@@ -101,4 +101,28 @@ describe("NativeClient", () => {
     client.send({ type: "ping" }).catch(() => {});
     expect(connectCount).toBe(2); // only reconnects when a new send() actually happens
   });
+
+  it("delivers organize-progress push messages to subscribers without resolving any pending request", async () => {
+    const port = new FakePort();
+    const client = new NativeClient(() => port);
+
+    const pending = client.send({ type: "ping" }); // establishes the connection
+    const received: Array<{ completed: number; total: number }> = [];
+    const unsubscribe = client.onOrganizeProgress((completed, total) => received.push({ completed, total }));
+
+    port.emit({ type: "organize-progress", completed: 1, total: 3 });
+    port.emit({ type: "organize-progress", completed: 2, total: 3 });
+    expect(received).toEqual([
+      { completed: 1, total: 3 },
+      { completed: 2, total: 3 },
+    ]);
+
+    unsubscribe();
+    port.emit({ type: "organize-progress", completed: 3, total: 3 });
+    expect(received).toHaveLength(2); // no longer subscribed after unsubscribe
+
+    // the still-pending "ping" send() must be completely unaffected
+    port.emit({ type: "pong" });
+    await expect(pending).resolves.toEqual({ type: "pong" });
+  });
 });

@@ -74,7 +74,7 @@ export interface SessionState {
   batchDefaultBucketId: string;
 }
 
-export type MediaType = "image" | "video";
+export type MediaType = "image" | "video" | "audio";
 
 export interface IntentPing {
   origin: string;
@@ -279,4 +279,13 @@ export type NativeResponse =
   | { type: "pick-directory-result"; ok: true; path: string | null } // null = user cancelled the dialog
   | { type: "pick-directory-result"; ok: false; error: string }
   | { type: "list-downloads-folder-result"; ok: true; files: DownloadsFolderEntry[] }
-  | { type: "list-downloads-folder-result"; ok: false; error: string };
+  | { type: "list-downloads-folder-result"; ok: false; error: string }
+  /**
+   * Unsolicited push message, not a response to any particular request — the
+   * Agent writes zero or more of these to stdout while an "organize-batch" is
+   * in flight, one per completed item, before the final
+   * "organize-batch-result". Lets the Inbox show real progress instead of a
+   * static "Organizing…" once large/slow (e.g. video) batches can legitimately
+   * take minutes (see organizeBatchTimeoutMs in organizeFlow.ts).
+   */
+  | { type: "organize-progress"; completed: number; total: number };

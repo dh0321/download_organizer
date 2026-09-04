@@ -466,15 +466,16 @@ body {
    buttons, plus a small label so it doesn't read as just another button. */
 .aias-inbox-filter {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   margin: 0 8px 10px;
-  padding: 5px 10px;
+  padding: 8px 10px;
   /* White card + border against the (also white) list pane so the box reads
      as its own unit by outline, while the segmented control's own gray
      track (below) still shows clear contrast inside it. No shadow, and
      wider/shorter than a default card — reads as a flat, wide strip rather
-     than a floating panel. */
+     than a floating panel. Column layout: segment row on top, search input
+     below, both inside the same bordered box. */
   background: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);

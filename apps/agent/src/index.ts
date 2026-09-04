@@ -72,7 +72,16 @@ async function main(): Promise<void> {
     // No further trust is extended to `raw` here beyond "valid JSON" — every field
     // is re-validated by the handler it reaches (sanitizeSegment, Root containment,
     // etc.), per §F-2's "never trust a value from the Extension" principle.
-    void dispatch({ configStore, jobQueue }, req).then(
+    void dispatch(
+      {
+        configStore,
+        jobQueue,
+        onOrganizeProgress: (completed, total) => {
+          writeMessage(process.stdout, { type: "organize-progress", completed, total });
+        },
+      },
+      req,
+    ).then(
       (response) => {
         writeMessage(process.stdout, response);
         void logger.log(`response: ${response.type}${"ok" in response ? ` ok=${response.ok}` : ""}`);

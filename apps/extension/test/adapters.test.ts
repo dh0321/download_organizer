@@ -183,6 +183,12 @@ describe("mediaTypeForExtension", () => {
     }
   });
 
+  it("classifies supported audio extensions", () => {
+    for (const ext of [".mp3", ".wav", ".flac", ".m4a", ".aac", ".ogg", ".opus"]) {
+      expect(mediaTypeForExtension(ext)).toBe("audio");
+    }
+  });
+
   it("returns undefined for unsupported extensions (e.g. pdf/zip)", () => {
     expect(mediaTypeForExtension(".pdf")).toBeUndefined();
     expect(mediaTypeForExtension(".zip")).toBeUndefined();

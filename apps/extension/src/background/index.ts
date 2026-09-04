@@ -27,6 +27,17 @@ import { SESSION_STORAGE_KEY, INDEX_COUNTERS_STORAGE_KEY } from "./storageKeys.j
 const intentPingStore = new IntentPingStore();
 const nativeClient = new NativeClient();
 
+// Broadcasts real per-item Organize progress to whichever Inbox page (if any)
+// is currently open — see NativeClient.onOrganizeProgress/dispatch.ts's
+// organize-batch case. No-op, harmlessly, when no Inbox page is listening;
+// the lastError read below only exists to suppress Chrome's "Unchecked
+// runtime.lastError" console warning in that (expected, common) case.
+nativeClient.onOrganizeProgress((completed, total) => {
+  chrome.runtime.sendMessage({ type: "aias-organize-progress", completed, total }, () => {
+    void chrome.runtime.lastError;
+  });
+});
+
 // A synchronous, in-memory mirror of SessionState kept up to date via the
 // storage listener below — onDeterminingFilename must read this synchronously
 // (no await), per §F hard-boundary requirement.

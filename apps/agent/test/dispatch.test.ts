@@ -147,6 +147,45 @@ describe("dispatch", () => {
     expect(byJobId["job-other-good"]).toMatchObject({ ok: true });
   });
 
+  it("reports organize-batch progress once per completed item, including failures, before resolving", async () => {
+    const goodSrc = path.join(downloadsDir, "good.png");
+    await writeFile(goodSrc, "bytes");
+    const missingSrc = path.join(downloadsDir, "already-gone.png");
+
+    const naming = {
+      project: "P",
+      sequence: "",
+      shot: "SH010",
+      bucketId: "generated",
+      description: "",
+      namingPresetId: "default",
+      namingTemplate: "{shot}_{type}_{description}_{index}",
+      customFilenameEnabled: false,
+      customFilename: "",
+    };
+
+    const progressCalls: Array<{ completed: number; total: number }> = [];
+    await dispatch(
+      {
+        configStore,
+        jobQueue,
+        downloadsRoot: downloadsDir,
+        onOrganizeProgress: (completed, total) => progressCalls.push({ completed, total }),
+      },
+      {
+        type: "organize-batch",
+        items: [
+          { jobId: "job-good", sourcePath: goodSrc, extension: ".png", mediaType: "image", source: "chatgpt", reservedIndex: 1, naming },
+          { jobId: "job-missing", sourcePath: missingSrc, extension: ".png", mediaType: "image", source: "chatgpt", reservedIndex: 2, naming },
+        ],
+      },
+    );
+
+    expect(progressCalls).toHaveLength(2);
+    expect(progressCalls.every((c) => c.total === 2)).toBe(true);
+    expect(progressCalls.map((c) => c.completed).sort()).toEqual([1, 2]);
+  });
+
   it("reports get-max-index as 0 for a never-used destination", async () => {
     const res = await dispatch(
       { configStore, jobQueue },
