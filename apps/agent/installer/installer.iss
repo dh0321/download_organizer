@@ -39,7 +39,12 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Files]
-Source: "..\dist-bundle\DownloadOrganizerAgent.exe"; DestDir: "{app}"; Flags: ignoreversion
+; restartreplace: if the file is still somehow locked at copy time despite
+; the taskkill below (e.g. a slow-to-release handle), queue the replacement
+; for next reboot instead of silently leaving the old file in place forever
+; — confirmed live that this was happening with no error shown at all in
+; /VERYSILENT mode.
+Source: "..\dist-bundle\DownloadOrganizerAgent.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
 
 [Code]
 var
@@ -144,7 +149,25 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ExePath, DefaultRoot: String;
+  ResultCode: Integer;
 begin
+  if CurStep = ssInstall then
+  begin
+    // Force-close any Agent process still holding the old .exe open, so the
+    // file copy below doesn't silently fail — confirmed live that relying on
+    // "the user already closed Chrome" wasn't reliable enough: Chrome keeps
+    // this process alive as long as any extension page has an open Native
+    // Messaging connection, and a locked file otherwise fails to update with
+    // zero visible error in /VERYSILENT mode. Not running Chrome/the Agent
+    // at all is the normal case, so a nonzero ResultCode (nothing to kill)
+    // is expected and fine — nothing to check it against.
+    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM DownloadOrganizerAgent.exe',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // Small grace period for Windows to actually release the file handle
+    // after the process exits — the kill above is synchronous, but handle
+    // release isn't always instantaneous with it.
+    Sleep(500);
+  end;
   if CurStep = ssPostInstall then
   begin
     ForceDirectories(ConfigDir());
