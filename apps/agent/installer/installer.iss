@@ -166,7 +166,7 @@ begin
     // worth logging.
     Launched := Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM DownloadOrganizerAgent.exe',
       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    Log(Format('taskkill launched=%s resultCode=%d', [BoolToStr(Launched), ResultCode]));
+    Log('taskkill launched=' + IntToStr(Ord(Launched)) + ' resultCode=' + IntToStr(ResultCode));
     // Small grace period for Windows to actually release the file handle
     // after the process exits — the kill above is synchronous, but handle
     // release isn't always instantaneous with it.
