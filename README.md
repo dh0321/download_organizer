@@ -129,6 +129,11 @@ Node.js itself:
    change later from the popup) — it's what seeds `config.json`'s
    `allowedExtensionId`; without it the Agent stays `"unconfigured"` and
    rejects every real connection (this is logged clearly — see below).
+
+   If the extension ID changes later (e.g. after a reload) and you re-run this
+   script, it only updates `defaultRoot`/`allowedExtensionId` in an existing
+   `config.json` — any folder template/asset bucket/conflict policy changes
+   you'd made from the Extension's Settings page are left untouched, not reset.
 6. Reload the extension in `chrome://extensions`, open the popup — the
    **Agent** status line at the bottom should flip from "not running" to
    "connected" within a couple seconds.

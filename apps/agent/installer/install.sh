@@ -40,6 +40,14 @@ done
 
 [[ -z "$EXTENSION_ID" ]] && usage
 
+# Real Chrome extension IDs are exactly 32 lowercase letters a-p — catch a
+# typo/paste error here instead of letting it surface later as a confusing
+# "REJECTED connection from unexpected origin" in the Agent's log.
+if [[ ! "$EXTENSION_ID" =~ ^[a-p]{32}$ ]]; then
+  echo "Error: '$EXTENSION_ID' doesn't look like a real Chrome extension ID (expected exactly 32 lowercase letters a-p). Copy it from chrome://extensions again." >&2
+  exit 1
+fi
+
 echo "Bundling Agent..."
 (cd "$AGENT_DIR" && npm run bundle --silent)
 
@@ -78,9 +86,34 @@ echo "Registered native messaging manifest: $MANIFEST_PATH"
 CONFIG_DIR="$HOME/.config/AIAssetSaver"
 mkdir -p "$CONFIG_DIR"
 
+CONFIG_PATH="$CONFIG_DIR/config.json"
+
 if [[ -n "$DEFAULT_ROOT" ]]; then
   mkdir -p "$DEFAULT_ROOT"
-  cat > "$CONFIG_DIR/config.json" <<JSON
+
+  if [[ -f "$CONFIG_PATH" ]]; then
+    # Re-running the installer (e.g. the extension got reloaded and received a
+    # new ID) must never reset settings the user already customized from the
+    # Extension's Settings UI — only patch the two fields the installer
+    # actually owns (allowedExtensionId can never be set any other way; see
+    # agentConfig.ts's applySyncSettings), leaving everything else untouched.
+    if ! python3 - "$CONFIG_PATH" "$DEFAULT_ROOT" "$EXTENSION_ID" <<'PY'
+import json, sys
+path, default_root, extension_id = sys.argv[1:4]
+with open(path) as f:
+    config = json.load(f)
+config["defaultRoot"] = default_root
+config["allowedExtensionId"] = extension_id
+with open(path, "w") as f:
+    json.dump(config, f, indent=2)
+PY
+    then
+      echo "Error: existing config.json at '$CONFIG_PATH' isn't valid JSON, so it can't be safely updated in place. Back it up, delete it, and re-run this script to reseed defaults." >&2
+      exit 1
+    fi
+    echo "Updated existing config.json: defaultRoot + allowedExtensionId only (folderTemplate/assetBuckets/conflictPolicy/maxConcurrentFileOps left untouched)."
+  else
+    cat > "$CONFIG_PATH" <<JSON
 {
   "defaultRoot": "$DEFAULT_ROOT",
   "folderTemplate": {
@@ -106,7 +139,8 @@ if [[ -n "$DEFAULT_ROOT" ]]; then
   "allowedExtensionId": "$EXTENSION_ID"
 }
 JSON
-  echo "Seeded AgentConfig: defaultRoot=$DEFAULT_ROOT at $CONFIG_DIR/config.json"
+    echo "Seeded new AgentConfig: defaultRoot=$DEFAULT_ROOT at $CONFIG_PATH"
+  fi
 else
   echo "No --default-root given — Agent will start ROOT_NOT_CONFIGURED until set from the popup/options page."
 fi

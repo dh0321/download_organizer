@@ -1,7 +1,0 @@
-{
-  "name": "com.ai_asset_saver.agent",
-  "description": "AI Asset Saver Local Agent",
-  "path": "__AGENT_EXE_PATH__",
-  "type": "stdio",
-  "allowed_origins": ["chrome-extension://__PRODUCTION_EXTENSION_ID__/"]
-}
