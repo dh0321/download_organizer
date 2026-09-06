@@ -32,11 +32,19 @@ export async function pickDirectoryMac(execFileFn: ExecFileFn = defaultExecFile)
   }
 }
 
+// Deliberately NOT System.Windows.Forms.FolderBrowserDialog: invoked from a
+// window-less background process (the Agent has no window of its own — it's
+// a console-less child process Chrome spawns for Native Messaging), WinForms
+// can hit COM/apartment-initialization issues there that surface as cryptic
+// errors like "A dynamic callback was not specified" — confirmed live.
+// Shell.Application's BrowseForFolder is a much older, simpler COM object
+// (present on every Windows version since 2000) with none of that
+// threading/Add-Type baggage, and needs no assembly loading at all.
 const WINDOWS_FOLDER_PICKER_SCRIPT = `
-Add-Type -AssemblyName System.Windows.Forms
-$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-  Write-Output $dialog.SelectedPath
+$shell = New-Object -ComObject Shell.Application
+$folder = $shell.BrowseForFolder(0, 'Select a folder', 0, 0)
+if ($folder) {
+  Write-Output $folder.Self.Path
 }
 `;
 
