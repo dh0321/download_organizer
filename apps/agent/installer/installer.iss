@@ -39,12 +39,13 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Files]
-; restartreplace: if the file is still somehow locked at copy time despite
-; the taskkill below (e.g. a slow-to-release handle), queue the replacement
-; for next reboot instead of silently leaving the old file in place forever
-; — confirmed live that this was happening with no error shown at all in
-; /VERYSILENT mode.
-Source: "..\dist-bundle\DownloadOrganizerAgent.exe"; DestDir: "{app}"; Flags: ignoreversion restartreplace
+; NOT restartreplace: tried that as a "just in case it's still locked"
+; backstop, but confirmed live it made things worse — restartreplace
+; unconditionally defers the copy to next reboot regardless of whether the
+; file is actually in use, so the .exe never updated at all without a
+; manual restart. The taskkill in ssInstall below is what actually needs to
+; work; ignoreversion alone is enough once nothing has the file open.
+Source: "..\dist-bundle\DownloadOrganizerAgent.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Code]
 var
@@ -150,6 +151,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ExePath, DefaultRoot: String;
   ResultCode: Integer;
+  Launched: Boolean;
 begin
   if CurStep = ssInstall then
   begin
@@ -160,9 +162,11 @@ begin
     // Messaging connection, and a locked file otherwise fails to update with
     // zero visible error in /VERYSILENT mode. Not running Chrome/the Agent
     // at all is the normal case, so a nonzero ResultCode (nothing to kill)
-    // is expected and fine — nothing to check it against.
-    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM DownloadOrganizerAgent.exe',
+    // is expected and fine — only Launched (did taskkill.exe even start) is
+    // worth logging.
+    Launched := Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM DownloadOrganizerAgent.exe',
       '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Log(Format('taskkill launched=%s resultCode=%d', [BoolToStr(Launched), ResultCode]));
     // Small grace period for Windows to actually release the file handle
     // after the process exits — the kill above is synchronous, but handle
     // release isn't always instantaneous with it.
