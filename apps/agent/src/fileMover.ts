@@ -14,6 +14,7 @@
 
 import { copyFile, link, unlink, stat, mkdtemp } from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import { randomBytes } from "node:crypto";
 import { conflictCandidateFilename, MAX_CONFLICT_ATTEMPTS, type NativeErrorCode } from "@download-organizer/shared";
 import { RoutingError } from "./fileRouter.js";
@@ -129,6 +130,5 @@ export async function moveIntoDestination(
 
 /** Test helper: creates a fresh temp directory (used by fileMover/fileRouter tests). */
 export async function makeTempDir(prefix: string): Promise<string> {
-  const os = await import("node:os");
   return mkdtemp(path.join(os.tmpdir(), prefix));
 }

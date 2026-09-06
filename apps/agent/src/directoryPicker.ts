@@ -5,6 +5,24 @@
 // Shell.Application COM object (see pickDirectoryWindows for why it's a
 // script file on disk, not an inline -Command string). Both are already
 // present on their respective OS — no extra dependency needed.
+//
+// All Node built-ins below are STATIC imports, not dynamic import() — the
+// packaged (pkg) Windows .exe has no dynamic-import host callback wired up,
+// so any await import(...) throws "A dynamic import callback was not
+// specified" the instant it runs, before the platform-specific script logic
+// below even gets a chance to execute. That's what was actually causing the
+// "Edit" folder picker to fail live on Windows — three separate rewrites of
+// the PowerShell invocation (WinForms, Shell.Application, -Sta, temp .ps1
+// file) all hit this same wall since none of them touched the dynamic
+// imports that ran before any of that code. Confirmed unrelated to
+// PowerShell/Shell entirely: the vitest suite here never runs through pkg,
+// so it never caught this.
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { writeFile, unlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { randomBytes } from "node:crypto";
 
 export interface ExecFileResult {
   stdout: string;
@@ -14,8 +32,6 @@ export interface ExecFileResult {
 export type ExecFileFn = (file: string, args: string[]) => Promise<ExecFileResult>;
 
 async function defaultExecFile(file: string, args: string[]): Promise<ExecFileResult> {
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
   return promisify(execFile)(file, args);
 }
 
@@ -35,20 +51,14 @@ export async function pickDirectoryMac(execFileFn: ExecFileFn = defaultExecFile)
 
 // Shell.Application's BrowseForFolder is a much older, simpler COM object
 // than System.Windows.Forms.FolderBrowserDialog (present on every Windows
-// version since 2000, no Add-Type/assembly loading needed) — switched to
-// this after FolderBrowserDialog failed live with "A dynamic callback was
-// not specified". That exact error persisted even after the switch (and
-// after adding -Sta, and confirmed unrelated to the script's own logic:
-// the identical command line runs fine when typed into cmd.exe directly).
-// That combination — same error survives 3 different script rewrites, but
-// disappears when the exact same command is run outside Node — points at
-// the *argument-passing* path itself, not anything in the script: Node's
-// execFile reconstructs a single Windows command-line string from the argv
-// array, and a multi-line script embedded in a -Command argument is a
-// known-fragile case for that reconstruction (quoting/newlines can come out
-// subtly mangled). Writing the script to a real .ps1 file and running that
-// via -File sidesteps command-line quoting entirely — the script is read
-// from disk, not reassembled through argv.
+// version since 2000, no Add-Type/assembly loading needed). Earlier
+// debugging blamed command-line quoting for the "A dynamic import callback
+// was not specified" error seen live and switched this to a temp .ps1 file
+// run via -File for that reason — that theory turned out to be wrong (the
+// error was Node's own dynamic import() failing inside the pkg-packaged
+// .exe, well before this script ever ran; see the file-level comment above).
+// The -File approach and -Sta are kept anyway since they're harmless and
+// slightly more robust than an inline -Command string.
 const WINDOWS_FOLDER_PICKER_SCRIPT = `
 $shell = New-Object -ComObject Shell.Application
 $folder = $shell.BrowseForFolder(0, 'Select a folder', 0, 0)
@@ -58,11 +68,6 @@ if ($folder) {
 `;
 
 export async function pickDirectoryWindows(execFileFn: ExecFileFn = defaultExecFile): Promise<string | null> {
-  const { writeFile, unlink } = await import("node:fs/promises");
-  const { tmpdir } = await import("node:os");
-  const path = await import("node:path");
-  const { randomBytes } = await import("node:crypto");
-
   const scriptPath = path.join(tmpdir(), `aias-folder-picker-${randomBytes(8).toString("hex")}.ps1`);
   await writeFile(scriptPath, WINDOWS_FOLDER_PICKER_SCRIPT, "utf-8");
   try {
