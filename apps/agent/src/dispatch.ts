@@ -11,6 +11,7 @@ import { handleRouteFile } from "./routeFile.js";
 import { getMaxIndex } from "./getMaxIndex.js";
 import { pickDirectory } from "./directoryPicker.js";
 import { listDownloadsFolder } from "./listDownloadsFolder.js";
+import { openPath } from "./openPath.js";
 
 export interface DispatchDeps {
   configStore: AgentConfigStore;
@@ -103,6 +104,15 @@ export async function dispatch(deps: DispatchDeps, req: NativeRequest): Promise<
         return { type: "list-downloads-folder-result", ok: true, files };
       } catch (e) {
         return { type: "list-downloads-folder-result", ok: false, error: (e as Error).message };
+      }
+    }
+
+    case "open-path": {
+      try {
+        await openPath(req.path);
+        return { type: "open-path-result", ok: true };
+      } catch (e) {
+        return { type: "open-path-result", ok: false, error: (e as Error).message };
       }
     }
   }

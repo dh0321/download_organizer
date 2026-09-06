@@ -162,6 +162,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "aias-open-path") {
+    nativeClient
+      .send({ type: "open-path", path: message.path }, 10_000)
+      .then((res) => {
+        if (res.type === "open-path-result") sendResponse(res);
+        else sendResponse({ type: "open-path-result", ok: false, error: "unexpected response" });
+      })
+      .catch((err) => sendResponse({ type: "open-path-result", ok: false, error: String(err) }));
+    return true;
+  }
+
   if (message?.type === "aias-update-naming") {
     void jobManagerPromise.then((jm) => {
       jm.updateNaming(message.id, message.patch);

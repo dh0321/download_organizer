@@ -256,7 +256,14 @@ export type NativeRequest =
    * cleared (e.g. via "Clear browsing data") even though the file itself is
    * still sitting on disk untouched.
    */
-  | { type: "list-downloads-folder" };
+  | { type: "list-downloads-folder" }
+  /**
+   * Opens a file with its OS-default app by absolute path, via the Agent —
+   * unlike chrome.downloads.open(), this doesn't depend on Chrome's own
+   * download history, so it works for every Pending Asset (including ones
+   * imported via Rescan's folder scan, which never had a history entry).
+   */
+  | { type: "open-path"; path: string };
 
 export type NativeErrorCode =
   | "OUTSIDE_ROOT"
@@ -280,6 +287,8 @@ export type NativeResponse =
   | { type: "pick-directory-result"; ok: false; error: string }
   | { type: "list-downloads-folder-result"; ok: true; files: DownloadsFolderEntry[] }
   | { type: "list-downloads-folder-result"; ok: false; error: string }
+  | { type: "open-path-result"; ok: true }
+  | { type: "open-path-result"; ok: false; error: string }
   /**
    * Unsolicited push message, not a response to any particular request — the
    * Agent writes zero or more of these to stdout while an "organize-batch" is

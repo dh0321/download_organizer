@@ -471,6 +471,7 @@ export function App() {
   const [pickingFolder, setPickingFolder] = useState(false);
   const [folderPickerError, setFolderPickerError] = useState("");
   const [openFileError, setOpenFileError] = useState("");
+  const [openingFile, setOpeningFile] = useState(false);
   const [organizeLog, setOrganizeLog] = useState<OrganizeLogEntry[]>([]);
   const [organizeLogExpanded, setOrganizeLogExpanded] = useState(false);
   const [confirmingEmptyInbox, setConfirmingEmptyInbox] = useState(false);
@@ -975,28 +976,26 @@ export function App() {
                       <div className="aias-asset-header-actions">
                         <button
                           className="aias-btn aias-btn-outline aias-btn-sm"
-                          disabled={asset.browserDownloadId == null}
-                          title={
-                            asset.browserDownloadId == null
-                              ? "Not available for files found via Rescan folder scan"
-                              : undefined
-                          }
+                          disabled={openingFile}
                           onClick={() => {
-                            if (asset.browserDownloadId == null) return;
                             setOpenFileError("");
-                            // chrome.downloads.open() takes no callback and never throws —
-                            // on failure it only sets chrome.runtime.lastError (e.g. the
-                            // download was removed from Chrome's history, or its file no
-                            // longer exists on disk), which must be read synchronously
-                            // right here or it's lost. Without this check the button just
-                            // silently did nothing on failure — confirmed live.
-                            chrome.downloads.open(asset.browserDownloadId);
-                            if (chrome.runtime.lastError) {
-                              setOpenFileError(chrome.runtime.lastError.message ?? "Couldn't open the file.");
-                            }
+                            setOpeningFile(true);
+                            // Goes through the Agent (opens asset.sourcePath directly by
+                            // absolute path) rather than chrome.downloads.open() — that API
+                            // only works for a file Chrome itself has a live history entry
+                            // for, which excludes anything imported via Rescan's folder scan
+                            // (confirmed live: the button used to be disabled for those, with
+                            // no way to open them at all) and silently breaks the moment a
+                            // file's history entry is cleared for any other file too.
+                            chrome.runtime.sendMessage({ type: "aias-open-path", path: asset.sourcePath }, (res) => {
+                              setOpeningFile(false);
+                              if (!res?.ok) {
+                                setOpenFileError(res?.error ?? "Couldn't open the file — Local App may not be running.");
+                              }
+                            });
                           }}
                         >
-                          Open file
+                          {openingFile ? "Opening…" : "Open file"}
                         </button>
                       </div>
                     </div>

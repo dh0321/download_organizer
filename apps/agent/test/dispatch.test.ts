@@ -13,6 +13,13 @@ vi.mock("../src/directoryPicker.js", () => ({
 }));
 import { pickDirectory } from "../src/directoryPicker.js";
 
+// dispatch's "open-path" case shells out to the real OS (open/cmd) via
+// openPath.ts — mock it here for the same reason.
+vi.mock("../src/openPath.js", () => ({
+  openPath: vi.fn(),
+}));
+import { openPath } from "../src/openPath.js";
+
 describe("dispatch", () => {
   let root: string;
   let downloadsDir: string;
@@ -204,6 +211,19 @@ describe("dispatch", () => {
     vi.mocked(pickDirectory).mockResolvedValueOnce("/Users/dahye/AI_Projects/Sub");
     await dispatch({ configStore, jobQueue }, { type: "pick-directory", startPath: "/Users/dahye/AI_Projects" });
     expect(pickDirectory).toHaveBeenCalledWith("/Users/dahye/AI_Projects");
+  });
+
+  it("opens the given path on open-path", async () => {
+    vi.mocked(openPath).mockResolvedValueOnce(undefined);
+    const res = await dispatch({ configStore, jobQueue }, { type: "open-path", path: "/Users/dahye/AI_Projects/hero.png" });
+    expect(openPath).toHaveBeenCalledWith("/Users/dahye/AI_Projects/hero.png");
+    expect(res).toEqual({ type: "open-path-result", ok: true });
+  });
+
+  it("returns ok:false when opening the path fails", async () => {
+    vi.mocked(openPath).mockRejectedValueOnce(new Error("ENOENT: no such file"));
+    const res = await dispatch({ configStore, jobQueue }, { type: "open-path", path: "/missing" });
+    expect(res).toMatchObject({ type: "open-path-result", ok: false });
   });
 
   it("returns ok:true with a null path when the user cancels the dialog", async () => {

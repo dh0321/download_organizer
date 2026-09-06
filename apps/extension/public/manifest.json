@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAxKHBciZT2PrHphBH3fLrhhadjI3LeOVIlh0Nk+BCp1pWOfpfFfakqqJKtvOBzyCjXUENhGcBCFoyfkmn+5sKEchQ34cuYQv+bpCJvqYWdWeYjai7Z52izaY2vWHQc9SbhQHKPxJM6L11rsUfA5YQNjwQvOOW2VEHsjA2b54IWFyugEy2+k2XfhCXoDr4E3rvvDADFe0Tcxhraklmrc6WZF/yY6SnEzW8sEmGdEefu531qMif9Yo479zOUDz8cXQap/bNiEfApFjICcHqIxtHsv0m8CKKTAKvfNX2TyirkHqstJwJ7pBKwYytubf+f9T3avlMESWmR3muA8lFEcot5QIDAQAB",
   "description": "Automatically renames and routes your image/video downloads into project folders — recognizes ChatGPT, Gemini, and many other AI generation tools as a source label while Watch Mode is on.",
-  "permissions": ["downloads", "downloads.open", "storage", "nativeMessaging", "notifications"],
+  "permissions": ["downloads", "storage", "nativeMessaging", "notifications"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
