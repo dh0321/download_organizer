@@ -8,13 +8,15 @@
     "test": "vitest run",
     "build": "tsc -p tsconfig.json",
     "start": "tsx src/index.ts",
-    "bundle": "node build-bundle.mjs"
+    "bundle": "node build-bundle.mjs",
+    "package:win": "pkg dist-bundle/agent.cjs --targets node22-win-x64 --output dist-bundle/DownloadOrganizerAgent.exe"
   },
   "dependencies": {
     "@download-organizer/shared": "*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@yao-pkg/pkg": "^6.22.0",
     "esbuild": "^0.24.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",

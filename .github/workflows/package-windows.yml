@@ -1,0 +1,56 @@
+name: Package Windows installer
+
+# Builds DownloadOrganizerSetup.exe (the Local Agent installer — see
+# apps/agent/installer/installer.iss). This must run on windows-latest:
+# Inno Setup's compiler (ISCC.exe) is Windows-only, and PLAN.md's own
+# appendix already calls out that Wine-on-Mac is the less reliable path —
+# a real Windows runner is worth it here over trying to reproduce this
+# locally.
+#
+# Trigger manually any time from the Actions tab to get a fresh build, or
+# push a "v*" tag to also attach the installer to a GitHub Release.
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bundle the Agent
+        working-directory: apps/agent
+        run: npm run bundle
+
+      - name: Build the Agent .exe
+        working-directory: apps/agent
+        run: npm run package:win
+
+      - name: Compile the Inno Setup installer
+        uses: Minionguyjpro/Inno-Setup-Action@v1.2.2
+        with:
+          path: apps/agent/installer/installer.iss
+
+      - name: Upload installer as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DownloadOrganizerSetup
+          path: apps/agent/dist-bundle/DownloadOrganizerSetup.exe
+          if-no-files-found: error
+
+      - name: Attach installer to the GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/agent/dist-bundle/DownloadOrganizerSetup.exe

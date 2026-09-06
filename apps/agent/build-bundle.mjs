@@ -23,3 +23,21 @@ await build({
 });
 
 console.log("Agent bundled to dist-bundle/agent.mjs");
+
+// A second, CommonJS-format bundle exists solely as pkg's input (see
+// installer/package-windows.mjs) — pkg's Windows/exe packaging has a history
+// of flaky ESM support, while CJS is its well-trodden path. ".cjs" extension
+// is required since this package.json has "type": "module" — a plain ".js"
+// file here would otherwise be parsed as ESM and reject `require`/module.exports.
+await build({
+  entryPoints: ["src/index.ts"],
+  outfile: "dist-bundle/agent.cjs",
+  bundle: true,
+  format: "cjs",
+  platform: "node",
+  // Matches package:win's pkg target (node22) — @yao-pkg/pkg-fetch's current
+  // release only ships prebuilt base binaries for Node 22/24/26, not 20.
+  target: "node22",
+});
+
+console.log("Agent bundled to dist-bundle/agent.cjs (for pkg)");

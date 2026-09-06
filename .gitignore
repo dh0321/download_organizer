@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-bundle/
+dist-package/
 *.tsbuildinfo
 
 # Agent local runtime state — never commit a real Default Root/config from a dev run
@@ -8,3 +9,10 @@ apps/agent/*.log
 
 # OS
 .DS_Store
+
+# Extension signing keys — pins the Chrome extension ID for distribution
+# (see apps/extension/public/manifest.json's "key" field); the private key
+# itself must NEVER be committed.
+*.pem
+*-signing-key*
+extension-key*
