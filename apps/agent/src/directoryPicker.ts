@@ -32,14 +32,16 @@ export async function pickDirectoryMac(execFileFn: ExecFileFn = defaultExecFile)
   }
 }
 
-// Deliberately NOT System.Windows.Forms.FolderBrowserDialog: invoked from a
-// window-less background process (the Agent has no window of its own — it's
-// a console-less child process Chrome spawns for Native Messaging), WinForms
-// can hit COM/apartment-initialization issues there that surface as cryptic
-// errors like "A dynamic callback was not specified" — confirmed live.
 // Shell.Application's BrowseForFolder is a much older, simpler COM object
-// (present on every Windows version since 2000) with none of that
-// threading/Add-Type baggage, and needs no assembly loading at all.
+// than System.Windows.Forms.FolderBrowserDialog (present on every Windows
+// version since 2000, no Add-Type/assembly loading needed) — switched to
+// this after FolderBrowserDialog failed live with "A dynamic callback was
+// not specified". That exact error persisted even after the switch, though,
+// which points at the real cause: every Shell/UI COM object requires the
+// calling thread to be STA (Single-Threaded Apartment), and the Agent process
+// (a console-less child process Chrome spawns for Native Messaging, with no
+// window of its own) apparently isn't spawning powershell.exe into one by
+// default here — so -sta is forced explicitly below rather than relied on.
 const WINDOWS_FOLDER_PICKER_SCRIPT = `
 $shell = New-Object -ComObject Shell.Application
 $folder = $shell.BrowseForFolder(0, 'Select a folder', 0, 0)
@@ -49,7 +51,13 @@ if ($folder) {
 `;
 
 export async function pickDirectoryWindows(execFileFn: ExecFileFn = defaultExecFile): Promise<string | null> {
-  const { stdout } = await execFileFn("powershell", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_FOLDER_PICKER_SCRIPT]);
+  const { stdout } = await execFileFn("powershell", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-Sta",
+    "-Command",
+    WINDOWS_FOLDER_PICKER_SCRIPT,
+  ]);
   const path = stdout.trim();
   return path.length > 0 ? path : null;
 }
