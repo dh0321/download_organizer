@@ -37,9 +37,15 @@ async function defaultExecFile(file: string, args: string[]): Promise<ExecFileRe
 
 const MAC_CANCEL_MARKERS = ["-128", "User canceled"];
 
-export async function pickDirectoryMac(execFileFn: ExecFileFn = defaultExecFile): Promise<string | null> {
+export async function pickDirectoryMac(
+  startPath?: string | null,
+  execFileFn: ExecFileFn = defaultExecFile,
+): Promise<string | null> {
+  const script = startPath
+    ? `POSIX path of (choose folder default location (POSIX file "${startPath.replace(/["\\]/g, "\\$&")}"))`
+    : "POSIX path of (choose folder)";
   try {
-    const { stdout } = await execFileFn("osascript", ["-e", "POSIX path of (choose folder)"]);
+    const { stdout } = await execFileFn("osascript", ["-e", script]);
     const path = stdout.trim();
     return path.length > 0 ? path : null;
   } catch (e) {
@@ -59,17 +65,32 @@ export async function pickDirectoryMac(execFileFn: ExecFileFn = defaultExecFile)
 // .exe, well before this script ever ran; see the file-level comment above).
 // The -File approach and -Sta are kept anyway since they're harmless and
 // slightly more robust than an inline -Command string.
-const WINDOWS_FOLDER_PICKER_SCRIPT = `
+//
+// BrowseForFolder's 4th arg (RootFolder) doubles as both "where the dialog
+// opens" and "the highest folder the user is allowed to navigate to" — MSDN
+// documents it as accepting either a CSIDL constant or a fully qualified
+// path string. Passing the caller's startPath (e.g. Default Root) for both
+// purposes is intentional here, not just convenient: Custom folders are
+// already required to live inside Default Root (see relativeToRoot on the
+// extension side), so restricting the dialog to that subtree matches a
+// constraint that already exists rather than introducing a new one.
+function buildWindowsFolderPickerScript(startPath?: string | null): string {
+  const rootArg = startPath ? `'${startPath.replace(/'/g, "''")}'` : "0";
+  return `
 $shell = New-Object -ComObject Shell.Application
-$folder = $shell.BrowseForFolder(0, 'Select a folder', 0, 0)
+$folder = $shell.BrowseForFolder(0, 'Select a folder', 0, ${rootArg})
 if ($folder) {
   Write-Output $folder.Self.Path
 }
 `;
+}
 
-export async function pickDirectoryWindows(execFileFn: ExecFileFn = defaultExecFile): Promise<string | null> {
+export async function pickDirectoryWindows(
+  startPath?: string | null,
+  execFileFn: ExecFileFn = defaultExecFile,
+): Promise<string | null> {
   const scriptPath = path.join(tmpdir(), `aias-folder-picker-${randomBytes(8).toString("hex")}.ps1`);
-  await writeFile(scriptPath, WINDOWS_FOLDER_PICKER_SCRIPT, "utf-8");
+  await writeFile(scriptPath, buildWindowsFolderPickerScript(startPath), "utf-8");
   try {
     const { stdout } = await execFileFn("powershell", [
       "-NoProfile",
@@ -88,10 +109,11 @@ export async function pickDirectoryWindows(execFileFn: ExecFileFn = defaultExecF
 }
 
 export async function pickDirectory(
+  startPath?: string | null,
   platform: NodeJS.Platform = process.platform,
   execFileFn: ExecFileFn = defaultExecFile,
 ): Promise<string | null> {
-  if (platform === "darwin") return pickDirectoryMac(execFileFn);
-  if (platform === "win32") return pickDirectoryWindows(execFileFn);
+  if (platform === "darwin") return pickDirectoryMac(startPath, execFileFn);
+  if (platform === "win32") return pickDirectoryWindows(startPath, execFileFn);
   throw new Error(`Native directory picker is not supported on this platform: ${platform}`);
 }

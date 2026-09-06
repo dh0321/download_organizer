@@ -90,7 +90,7 @@ export async function dispatch(deps: DispatchDeps, req: NativeRequest): Promise<
 
     case "pick-directory": {
       try {
-        const path = await pickDirectory();
+        const path = await pickDirectory(req.startPath);
         return { type: "pick-directory-result", ok: true, path };
       } catch (e) {
         return { type: "pick-directory-result", ok: false, error: (e as Error).message };

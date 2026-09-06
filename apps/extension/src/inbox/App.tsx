@@ -633,7 +633,11 @@ export function App() {
     }
     setFolderPickerError("");
     setPickingFolder(true);
-    chrome.runtime.sendMessage({ type: "aias-pick-directory" }, (res) => {
+    // Opens rooted at Default Root — a Custom folder must live inside it
+    // anyway (see the relativeToRoot check just below), so starting the
+    // dialog there instead of wherever the OS defaults to saves the user
+    // from navigating there by hand every time.
+    chrome.runtime.sendMessage({ type: "aias-pick-directory", startPath: defaultRoot }, (res) => {
       setPickingFolder(false);
       if (res?.ok && res.path) {
         const relative = relativeToRoot(res.path, defaultRoot);
@@ -1117,7 +1121,11 @@ export function App() {
                           value={
                             asset.naming.customDirectoryEnabled ? (asset.naming.customDirectory ?? "") : preview.folderFullPreview
                           }
-                          placeholder={pathSep === "\\" ? "ClientA\\ReviewBatch2" : "ClientA/ReviewBatch2"}
+                          // When empty, hints at Default Root (where the file lands if left
+                          // as-is) rather than a made-up example — this is a relative-path
+                          // field, but showing the absolute base it's relative to orients the
+                          // user before they type a subfolder.
+                          placeholder={defaultRoot || (pathSep === "\\" ? "ClientA\\ReviewBatch2" : "ClientA/ReviewBatch2")}
                           onFocus={() => {
                             // Auto shows the fully-resolved absolute path — editing it directly
                             // would have to be re-expressed as a Root-relative value anyway, so

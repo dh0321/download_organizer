@@ -4,34 +4,43 @@ import { pickDirectory, pickDirectoryMac, pickDirectoryWindows } from "../src/di
 describe("pickDirectoryMac", () => {
   it("returns the trimmed POSIX path from osascript's stdout", async () => {
     const execFileFn = vi.fn().mockResolvedValue({ stdout: "/Users/dahye/AI_Projects\n", stderr: "" });
-    const path = await pickDirectoryMac(execFileFn);
+    const path = await pickDirectoryMac(undefined, execFileFn);
     expect(path).toBe("/Users/dahye/AI_Projects");
     expect(execFileFn).toHaveBeenCalledWith("osascript", ["-e", "POSIX path of (choose folder)"]);
   });
 
   it("returns null when the user cancels the dialog (AppleScript -128 error)", async () => {
     const execFileFn = vi.fn().mockRejectedValue(new Error("Command failed: osascript -e ... User canceled. (-128)"));
-    const path = await pickDirectoryMac(execFileFn);
+    const path = await pickDirectoryMac(undefined, execFileFn);
     expect(path).toBeNull();
   });
 
   it("re-throws a genuine failure that isn't a cancellation", async () => {
     const execFileFn = vi.fn().mockRejectedValue(new Error("osascript: command not found"));
-    await expect(pickDirectoryMac(execFileFn)).rejects.toThrow(/command not found/);
+    await expect(pickDirectoryMac(undefined, execFileFn)).rejects.toThrow(/command not found/);
+  });
+
+  it("opens at startPath via AppleScript's default location clause when given one", async () => {
+    const execFileFn = vi.fn().mockResolvedValue({ stdout: "/Users/dahye/AI_Projects/Sub\n", stderr: "" });
+    await pickDirectoryMac("/Users/dahye/AI_Projects", execFileFn);
+    expect(execFileFn).toHaveBeenCalledWith("osascript", [
+      "-e",
+      'POSIX path of (choose folder default location (POSIX file "/Users/dahye/AI_Projects"))',
+    ]);
   });
 });
 
 describe("pickDirectoryWindows", () => {
   it("returns the trimmed path from PowerShell's stdout", async () => {
     const execFileFn = vi.fn().mockResolvedValue({ stdout: "D:\\AI_Projects\r\n", stderr: "" });
-    const path = await pickDirectoryWindows(execFileFn);
+    const path = await pickDirectoryWindows(undefined, execFileFn);
     expect(path).toBe("D:\\AI_Projects");
     expect(execFileFn).toHaveBeenCalledWith("powershell", expect.arrayContaining(["-NoProfile", "-NonInteractive"]));
   });
 
   it("returns null when stdout is empty (user cancelled — Shell.Application's BrowseForFolder returns nothing)", async () => {
     const execFileFn = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
-    const path = await pickDirectoryWindows(execFileFn);
+    const path = await pickDirectoryWindows(undefined, execFileFn);
     expect(path).toBeNull();
   });
 
@@ -49,7 +58,7 @@ describe("pickDirectoryWindows", () => {
       return { stdout: "C:\\Projects\r\n", stderr: "" };
     });
 
-    const path = await pickDirectoryWindows(execFileFn);
+    const path = await pickDirectoryWindows(undefined, execFileFn);
 
     expect(path).toBe("C:\\Projects");
     expect(execFileFn).toHaveBeenCalledWith(
@@ -59,24 +68,59 @@ describe("pickDirectoryWindows", () => {
     // Cleaned up afterward — no leftover temp files.
     await expect(access(scriptPathSeen)).rejects.toThrow();
   });
+
+  it("passes startPath as BrowseForFolder's RootFolder so the dialog opens there", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const execFileFn = vi.fn(async (_file: string, args: string[]) => {
+      const fileIdx = args.indexOf("-File");
+      const contents = await readFile(args[fileIdx + 1], "utf-8");
+      expect(contents).toContain("BrowseForFolder(0, 'Select a folder', 0, 'D:\\Projects')");
+      return { stdout: "D:\\Projects\\Sub\r\n", stderr: "" };
+    });
+
+    await pickDirectoryWindows("D:\\Projects", execFileFn);
+    expect(execFileFn).toHaveBeenCalled();
+  });
+
+  it("escapes a single quote in startPath for the PowerShell literal", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const execFileFn = vi.fn(async (_file: string, args: string[]) => {
+      const fileIdx = args.indexOf("-File");
+      const contents = await readFile(args[fileIdx + 1], "utf-8");
+      expect(contents).toContain("'D:\\O''Brien\\Projects'");
+      return { stdout: "", stderr: "" };
+    });
+
+    await pickDirectoryWindows("D:\\O'Brien\\Projects", execFileFn);
+    expect(execFileFn).toHaveBeenCalled();
+  });
 });
 
 describe("pickDirectory (platform dispatch)", () => {
   it("delegates to the macOS picker on darwin", async () => {
     const execFileFn = vi.fn().mockResolvedValue({ stdout: "/tmp/x\n", stderr: "" });
-    const path = await pickDirectory("darwin", execFileFn);
+    const path = await pickDirectory(undefined, "darwin", execFileFn);
     expect(path).toBe("/tmp/x");
     expect(execFileFn).toHaveBeenCalledWith("osascript", expect.anything());
   });
 
   it("delegates to the Windows picker on win32", async () => {
     const execFileFn = vi.fn().mockResolvedValue({ stdout: "C:\\x\n", stderr: "" });
-    const path = await pickDirectory("win32", execFileFn);
+    const path = await pickDirectory(undefined, "win32", execFileFn);
     expect(path).toBe("C:\\x");
     expect(execFileFn).toHaveBeenCalledWith("powershell", expect.anything());
   });
 
   it("throws a clear error on an unsupported platform", async () => {
-    await expect(pickDirectory("linux", vi.fn())).rejects.toThrow(/not supported/);
+    await expect(pickDirectory(undefined, "linux", vi.fn())).rejects.toThrow(/not supported/);
+  });
+
+  it("forwards startPath through to the platform-specific picker", async () => {
+    const execFileFn = vi.fn().mockResolvedValue({ stdout: "/tmp/x\n", stderr: "" });
+    await pickDirectory("/tmp/root", "darwin", execFileFn);
+    expect(execFileFn).toHaveBeenCalledWith("osascript", [
+      "-e",
+      'POSIX path of (choose folder default location (POSIX file "/tmp/root"))',
+    ]);
   });
 });

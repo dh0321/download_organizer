@@ -153,7 +153,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     // Long timeout: this is waiting on a human clicking through a native OS
     // dialog, not a normal fast round-trip.
     nativeClient
-      .send({ type: "pick-directory" }, 5 * 60 * 1000)
+      .send({ type: "pick-directory", startPath: message.startPath }, 5 * 60 * 1000)
       .then((res) => {
         if (res.type === "pick-directory-result") sendResponse(res);
         else sendResponse({ type: "pick-directory-result", ok: false, error: "unexpected response" });

@@ -200,6 +200,12 @@ describe("dispatch", () => {
     expect(res).toEqual({ type: "pick-directory-result", ok: true, path: "/Users/dahye/AI_Projects" });
   });
 
+  it("forwards startPath from the request to the native picker", async () => {
+    vi.mocked(pickDirectory).mockResolvedValueOnce("/Users/dahye/AI_Projects/Sub");
+    await dispatch({ configStore, jobQueue }, { type: "pick-directory", startPath: "/Users/dahye/AI_Projects" });
+    expect(pickDirectory).toHaveBeenCalledWith("/Users/dahye/AI_Projects");
+  });
+
   it("returns ok:true with a null path when the user cancels the dialog", async () => {
     vi.mocked(pickDirectory).mockResolvedValueOnce(null);
     const res = await dispatch({ configStore, jobQueue }, { type: "pick-directory" });

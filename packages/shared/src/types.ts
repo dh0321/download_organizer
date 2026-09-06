@@ -248,7 +248,7 @@ export type NativeRequest =
    * native OS folder dialog is shown by the Agent itself (a real local
    * process), which returns the chosen path as a plain string.
    */
-  | { type: "pick-directory" }
+  | { type: "pick-directory"; startPath?: string }
   /**
    * §Rescan — reads the real OS Downloads folder directly instead of going
    * through chrome.downloads.search(), which only reflects Chrome's own
