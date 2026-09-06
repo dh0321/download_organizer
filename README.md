@@ -1,4 +1,4 @@
-# AI Asset Saver
+# Download Organizer
 
 Chrome (Windows/macOS) extension that helps you rename and route AI-generated
 images/videos from ChatGPT and Gemini into project folders, only while "AI
@@ -88,7 +88,7 @@ npx tsx src/index.ts   # or: npm run build && node dist/index.js
 
 Set `AIAS_ALLOWED_EXTENSION_ID` to your dev extension's ID so the Agent's
 own origin check (§F-2 defense-in-depth) doesn't reject it. `%APPDATA%` (or
-`~/.config` outside Windows) will get an `AIAssetSaver/config.json` written to
+`~/.config` outside Windows) will get an `DownloadOrganizer/config.json` written to
 it on first `sync-settings` call.
 
 ## Installing the Agent on Windows
@@ -107,7 +107,7 @@ Node.js itself:
    cd apps\agent
    npm run build          # tsc -> apps\agent\dist\index.js
    ```
-3. Create `apps\agent\AIAssetSaverAgent.bat` next to `dist\`:
+3. Create `apps\agent\DownloadOrganizerAgent.bat` next to `dist\`:
    ```bat
    @echo off
    node "%~dp0dist\index.js" %*
@@ -122,7 +122,7 @@ Node.js itself:
    ```powershell
    Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass  # only for this session
    apps\agent\installer\install.ps1 -ExtensionId <extension-id-from-step-4> `
-     -AgentExePath "C:\full\path\to\apps\agent\AIAssetSaverAgent.bat" `
+     -AgentExePath "C:\full\path\to\apps\agent\DownloadOrganizerAgent.bat" `
      -DefaultRoot "D:\AI_Projects"
    ```
    **Always pass `-DefaultRoot`** on this first run (even a placeholder you'll
@@ -148,12 +148,12 @@ Chrome launches the Agent as a child process per connection with no visible
 console window, so **the log file is the primary debugging tool**:
 
 ```
-%APPDATA%\AIAssetSaver\agent.log
+%APPDATA%\DownloadOrganizer\agent.log
 ```
 
 It records every startup, the caller-origin check result, every request
 type/jobId received, and every response/error — tail it (`Get-Content -Wait
-$env:APPDATA\AIAssetSaver\agent.log`) while testing. On the Extension side,
+$env:APPDATA\DownloadOrganizer\agent.log`) while testing. On the Extension side,
 `chrome://extensions` → the "service worker" link → Console tab shows anything
 the background script logged (this is how the `runtime.lastError` bug during
 initial testing was caught and fixed).
@@ -175,13 +175,13 @@ before relying on it).
 apps/agent/installer/install.sh --extension-id <id-from-chrome://extensions> --default-root ~/AI_Projects
 ```
 
-This bundles `apps/agent/src/index.ts` (+ `@ai-asset-saver/shared`) into a
+This bundles `apps/agent/src/index.ts` (+ `@download-organizer/shared`) into a
 single self-contained file via esbuild (`apps/agent/build-bundle.mjs` →
 `dist-bundle/agent.mjs`, no `node_modules` needed at runtime), installs it to
-`~/Library/Application Support/AIAssetSaver/bin/`, writes the
+`~/Library/Application Support/DownloadOrganizer/bin/`, writes the
 native-messaging-host manifest to
 `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`, and seeds
-`~/.config/AIAssetSaver/config.json` the same way `install.ps1` does on
+`~/.config/DownloadOrganizer/config.json` the same way `install.ps1` does on
 Windows. Re-run it any time Agent source changes.
 
 **Important macOS-specific pitfall (found and fixed during real testing):** if
@@ -193,15 +193,15 @@ Settings → Privacy & Security → Files and Folders**. This surfaces as the
 unhelpful `chrome.runtime.lastError` message *"Native Messaging host
 disconnected: Native host has exited."*, with the Agent's log file never even
 getting a "starting" line — because the process is killed before it can run at
-all. Confirmed via `log show --predicate 'eventMessage CONTAINS "AIAssetSaver"'`
+all. Confirmed via `log show --predicate 'eventMessage CONTAINS "DownloadOrganizer"'`
 showing `kernel: (Sandbox) System Policy: bash(...) deny(1) file-read-data
-.../Desktop/.../AIAssetSaverAgent.sh`. Installing the bundled artifact under
+.../Desktop/.../DownloadOrganizerAgent.sh`. Installing the bundled artifact under
 `~/Library/Application Support/` (not Desktop/Documents/Downloads) avoids
 needing that permission grant at all — this is why `install.sh` copies the
 bundle out of the repo rather than pointing the manifest directly at a script
 inside it.
 
-Also note: `AIAssetSaverAgent.sh`'s wrapper script explicitly prepends
+Also note: `DownloadOrganizerAgent.sh`'s wrapper script explicitly prepends
 `/opt/homebrew/bin:/usr/local/bin` to `PATH` — Chrome launches it as a GUI-app
 child process with a minimal PATH that doesn't include Homebrew, so `node`
 wouldn't otherwise be found.
@@ -211,7 +211,7 @@ wouldn't otherwise be found.
 Same idea as Windows — the Agent has no visible console, so tail the log:
 
 ```
-tail -f ~/.config/AIAssetSaver/agent.log
+tail -f ~/.config/DownloadOrganizer/agent.log
 ```
 
 and check the background service worker's console via `chrome://extensions` →

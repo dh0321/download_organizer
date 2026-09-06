@@ -11,7 +11,7 @@
 // resolved yet leaves a real gap where an early message/download/click can
 // arrive with no listener present.
 
-import type { NamingFields } from "@ai-asset-saver/shared";
+import type { NamingFields } from "@download-organizer/shared";
 import { loadSessionState, DEFAULT_SESSION_STATE } from "./sessionManager.js";
 import { JobManager } from "./jobManager.js";
 import { IntentPingStore } from "./intentPingStore.js";

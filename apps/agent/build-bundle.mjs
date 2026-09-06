@@ -1,4 +1,4 @@
-// Bundles the Agent (src/index.ts + @ai-asset-saver/shared) into a single
+// Bundles the Agent (src/index.ts + @download-organizer/shared) into a single
 // self-contained .mjs file with no node_modules dependency at runtime. This is
 // what lets the installed Agent live OUTSIDE the dev repo (e.g. under
 // ~/Library/Application Support on macOS) instead of needing to be launched

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { scanDownloadsFolder, importRescanCandidates, type RescanCandidate } from "../src/background/rescanDownloads.js";
 import { JobManager } from "../src/background/jobManager.js";
-import type { DownloadsFolderEntry, NamingFields, NativeResponse, PendingAsset } from "@ai-asset-saver/shared";
+import type { DownloadsFolderEntry, NamingFields, NativeResponse, PendingAsset } from "@download-organizer/shared";
 
 function naming(): NamingFields {
   return {

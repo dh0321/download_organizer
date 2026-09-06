@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { formatOrganizeResultMessage, notifyOrganizeResult, notifyError } from "../src/background/notifier.js";
-import type { OrganizeBatchItemResult } from "@ai-asset-saver/shared";
+import type { OrganizeBatchItemResult } from "@download-organizer/shared";
 
 function ok(jobId: string, finalPath = "/dest/path/x.png"): OrganizeBatchItemResult {
   return { jobId, ok: true, finalPath };

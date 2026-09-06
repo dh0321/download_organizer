@@ -5,7 +5,7 @@
 // context an extension runs in. Only JobManager (background) ever WRITES
 // here — see jobManager.ts's persist().
 
-import type { PendingAsset } from "@ai-asset-saver/shared";
+import type { PendingAsset } from "@download-organizer/shared";
 import { PENDING_ASSETS_STORAGE_KEY } from "./storageKeys.js";
 
 export async function loadPendingAssets(): Promise<Record<string, PendingAsset>> {

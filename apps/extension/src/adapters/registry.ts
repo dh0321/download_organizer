@@ -2,7 +2,7 @@
 // and one entry here, plus the matching host_permissions/content_scripts manifest
 // entries (§K) — no other pipeline code changes (§D).
 
-import type { AISourceAdapter, MediaType } from "@ai-asset-saver/shared";
+import type { AISourceAdapter, MediaType } from "@download-organizer/shared";
 import { chatgptAdapter } from "./chatgpt.js";
 import { geminiAdapter } from "./gemini.js";
 import { higgsfieldAdapter } from "./higgsfield.js";

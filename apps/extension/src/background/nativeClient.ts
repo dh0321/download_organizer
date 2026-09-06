@@ -3,9 +3,9 @@
 // `connectNativeFn` is injected so this class is unit-testable without a real
 // Chrome runtime (see test/nativeClient.test.ts) — defaults to the real API.
 
-import type { NativeRequest, NativeResponse } from "@ai-asset-saver/shared";
+import type { NativeRequest, NativeResponse } from "@download-organizer/shared";
 
-export const NATIVE_HOST_NAME = "com.ai_asset_saver.agent";
+export const NATIVE_HOST_NAME = "com.download_organizer.agent";
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 export interface NativePort {

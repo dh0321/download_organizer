@@ -14,7 +14,7 @@ import {
   type NamingFields,
   type MediaType,
   type OrganizeLogEntry,
-} from "@ai-asset-saver/shared";
+} from "@download-organizer/shared";
 
 export interface JobManagerDeps {
   loadPendingAssets(): Promise<Record<string, PendingAsset>>;

@@ -3,7 +3,7 @@
 // Inbox, background) can read the current log without round-tripping through
 // a runtime message. Only JobManager (background) ever WRITES here.
 
-import type { OrganizeLogEntry } from "@ai-asset-saver/shared";
+import type { OrganizeLogEntry } from "@download-organizer/shared";
 import { ORGANIZE_LOG_STORAGE_KEY } from "./storageKeys.js";
 
 export async function loadOrganizeLog(): Promise<OrganizeLogEntry[]> {

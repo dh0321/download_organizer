@@ -1,5 +1,5 @@
 {
-  "name": "@ai-asset-saver/extension",
+  "name": "@download-organizer/extension",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "build": "vite build && node build-background.mjs"
   },
   "dependencies": {
-    "@ai-asset-saver/shared": "*",
+    "@download-organizer/shared": "*",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"
   },

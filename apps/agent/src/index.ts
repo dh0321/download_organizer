@@ -18,14 +18,14 @@ import { JobWorkerPool } from "./jobQueue.js";
 import { dispatch } from "./dispatch.js";
 import { readMessages, writeMessage } from "./stdio.js";
 import { FileLogger } from "./logger.js";
-import type { NativeRequest } from "@ai-asset-saver/shared";
+import type { NativeRequest } from "@download-organizer/shared";
 
 function resolveAppDataDir(): string {
-  // %APPDATA%\AIAssetSaver on Windows (the real deployment target); falls back
+  // %APPDATA%\DownloadOrganizer on Windows (the real deployment target); falls back
   // to a dotfile under the user's home directory so this same code path can be
   // exercised in local dev on macOS/Linux (see PLAN.md appendix).
   const appData = process.env.APPDATA ?? path.join(os.homedir(), ".config");
-  return path.join(appData, "AIAssetSaver");
+  return path.join(appData, "DownloadOrganizer");
 }
 
 function extractCallerExtensionOrigin(argv: string[]): string | undefined {

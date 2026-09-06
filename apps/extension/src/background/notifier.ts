@@ -6,7 +6,7 @@
 // chrome.notifications so the summary reaches the user even if the Inbox tab
 // isn't open.
 
-import type { OrganizeBatchItemResult } from "@ai-asset-saver/shared";
+import type { OrganizeBatchItemResult } from "@download-organizer/shared";
 
 const ORGANIZE_RESULT_NOTIFICATION_ID = "aias-organize-result";
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { resolveSafeDestination, assertWithinRoot, RoutingError } from "../src/fileRouter.js";
 import { defaultAgentConfig } from "../src/agentConfig.js";
-import type { NamingFields } from "@ai-asset-saver/shared";
+import type { NamingFields } from "@download-organizer/shared";
 
 function naming(overrides: Partial<NamingFields> = {}): NamingFields {
   return {

@@ -3,7 +3,7 @@
 // Deliberately self-contained with NO imports: classic (non-module) content
 // scripts cannot resolve bare/relative ES module imports the way the "type":
 // "module" background service worker can, so this file must not depend on any
-// other module — including @ai-asset-saver/shared or sessionManager.ts. The
+// other module — including @download-organizer/shared or sessionManager.ts. The
 // storage key below is intentionally duplicated from sessionManager.ts; keep the
 // two in sync if that key ever changes.
 //
@@ -11,7 +11,7 @@
 // reads page content, never inspects what was clicked, and (per §F-2) never even
 // sends that timestamp when AI Session is OFF.
 
-const SESSION_STORAGE_KEY = "aiAssetSaver.sessionState"; // must match sessionManager.ts
+const SESSION_STORAGE_KEY = "downloadOrganizer.sessionState"; // must match sessionManager.ts
 
 let cachedSessionEnabled = false;
 

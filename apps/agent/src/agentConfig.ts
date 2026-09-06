@@ -6,7 +6,7 @@
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { AgentConfig, FolderTemplate, AssetBucket } from "@ai-asset-saver/shared";
+import type { AgentConfig, FolderTemplate, AssetBucket } from "@download-organizer/shared";
 
 // Shot/Name is deliberately NOT a folder level — it's the per-asset filename
 // identifier (see naming.ts's identifier fallback chain), not a place to file

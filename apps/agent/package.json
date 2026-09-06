@@ -1,5 +1,5 @@
 {
-  "name": "@ai-asset-saver/agent",
+  "name": "@download-organizer/agent",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "bundle": "node build-bundle.mjs"
   },
   "dependencies": {
-    "@ai-asset-saver/shared": "*"
+    "@download-organizer/shared": "*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

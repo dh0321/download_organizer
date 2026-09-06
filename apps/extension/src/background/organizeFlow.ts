@@ -5,7 +5,7 @@
 // indices synchronously with no `await` in between" sequencing (§F-1) is
 // unit-testable without a real chrome.runtime/native host.
 
-import type { NativeRequest, NativeResponse, OrganizeBatchItem, OrganizeBatchItemResult, PendingAsset } from "@ai-asset-saver/shared";
+import type { NativeRequest, NativeResponse, OrganizeBatchItem, OrganizeBatchItemResult, PendingAsset } from "@download-organizer/shared";
 import { JobManager, pendingAssetIndexKey } from "./jobManager.js";
 
 export interface OrganizeFlowDeps {

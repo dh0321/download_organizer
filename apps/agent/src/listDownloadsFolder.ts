@@ -13,7 +13,7 @@
 import { readdir, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
-import type { DownloadsFolderEntry } from "@ai-asset-saver/shared";
+import type { DownloadsFolderEntry } from "@download-organizer/shared";
 import { defaultDownloadsRoot } from "./routeFile.js";
 
 type ReaddirFn = (dir: string, opts: { withFileTypes: true }) => Promise<Dirent[]>;

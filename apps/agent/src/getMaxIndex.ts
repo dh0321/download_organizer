@@ -4,7 +4,7 @@
 // "what's the max index under this folder", never hand the Agent an arbitrary regex.
 
 import { readdir } from "node:fs/promises";
-import type { AgentConfig } from "@ai-asset-saver/shared";
+import type { AgentConfig } from "@download-organizer/shared";
 import { resolveExistingDestinationOrNull, type FolderNamingFields } from "./fileRouter.js";
 
 /**

@@ -5,7 +5,7 @@
 // is a heuristic explicitly flagged in PLAN.md §Q as needing empirical validation
 // against real ChatGPT/Gemini download behavior before being trusted in production.
 
-import type { AISourceAdapter, IntentPing } from "@ai-asset-saver/shared";
+import type { AISourceAdapter, IntentPing } from "@download-organizer/shared";
 
 export const INTENT_PING_WINDOW_MS = 3000;
 

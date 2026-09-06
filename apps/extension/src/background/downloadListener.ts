@@ -23,7 +23,7 @@
 import { findMatchingAdapter, mediaTypeForExtension } from "../adapters/registry.js";
 import type { JobManager } from "./jobManager.js";
 import type { IntentPingStore } from "./intentPingStore.js";
-import type { MediaType, NamingFields, PendingAsset, SessionState } from "@ai-asset-saver/shared";
+import type { MediaType, NamingFields, PendingAsset, SessionState } from "@download-organizer/shared";
 import { IN_FLIGHT_DETECTIONS_STORAGE_KEY } from "./storageKeys.js";
 
 interface InFlightDetection {

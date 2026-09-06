@@ -23,7 +23,7 @@
 import { adapters, mediaTypeForExtension } from "../adapters/registry.js";
 import { basenameOf } from "./downloadListener.js";
 import type { JobManager } from "./jobManager.js";
-import type { DownloadsFolderEntry, MediaType, NamingFields, NativeRequest, NativeResponse } from "@ai-asset-saver/shared";
+import type { DownloadsFolderEntry, MediaType, NamingFields, NativeRequest, NativeResponse } from "@download-organizer/shared";
 
 const FILENAME_HINTS: Record<string, RegExp> = {
   chatgpt: /chatgpt/i,

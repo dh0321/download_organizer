@@ -41,7 +41,7 @@ export function App() {
     <div style={{ minHeight: "100vh" }}>
       <div className="aias-app" style={{ maxWidth: 440, margin: "0 auto", paddingTop: 32 }}>
         <h1 className="aias-title" style={{ fontSize: 22 }}>
-          AI Asset Saver — Settings
+          Download Organizer — Settings
         </h1>
 
         <div className="aias-card">
@@ -52,7 +52,7 @@ export function App() {
           </span>
           {status !== "connected" && (
             <p className="aias-subtext">
-              Install and run the AI Asset Saver Local App, then reload this page. See the project README for the
+              Install and run the Download Organizer Local App, then reload this page. See the project README for the
               Windows installer.
             </p>
           )}

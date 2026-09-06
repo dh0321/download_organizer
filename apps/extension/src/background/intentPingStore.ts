@@ -4,7 +4,7 @@
 // influence *whether* a download is treated as AI-sourced, never *what* path or
 // filename is used).
 
-import type { IntentPing } from "@ai-asset-saver/shared";
+import type { IntentPing } from "@download-organizer/shared";
 
 const RETENTION_MS = 10_000; // pings older than this are pruned; well beyond the 3s correlation window
 

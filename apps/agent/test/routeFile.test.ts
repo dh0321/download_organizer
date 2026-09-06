@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { handleRouteFile } from "../src/routeFile.js";
 import { defaultAgentConfig } from "../src/agentConfig.js";
-import type { NativeRequest } from "@ai-asset-saver/shared";
+import type { NativeRequest } from "@download-organizer/shared";
 
 function req(overrides: Partial<Extract<NativeRequest, { type: "route-file" }>> = {}): Extract<
   NativeRequest,

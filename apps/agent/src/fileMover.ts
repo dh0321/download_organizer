@@ -15,7 +15,7 @@
 import { copyFile, link, unlink, stat, mkdtemp } from "node:fs/promises";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
-import { conflictCandidateFilename, MAX_CONFLICT_ATTEMPTS, type NativeErrorCode } from "@ai-asset-saver/shared";
+import { conflictCandidateFilename, MAX_CONFLICT_ATTEMPTS, type NativeErrorCode } from "@download-organizer/shared";
 import { RoutingError } from "./fileRouter.js";
 
 export class TimeoutError extends Error {}

@@ -1,7 +1,7 @@
 // §D session-manager — single source of truth for SessionState, backed by
 // chrome.storage.local (never storage.sync — see PLAN.md §I for why).
 
-import type { SessionState } from "@ai-asset-saver/shared";
+import type { SessionState } from "@download-organizer/shared";
 import { SESSION_STORAGE_KEY as STORAGE_KEY } from "./storageKeys.js";
 
 export const DEFAULT_SESSION_STATE: SessionState = {

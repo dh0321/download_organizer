@@ -4,7 +4,7 @@
 // lives in the Inbox page now (see ../inbox/App.tsx).
 
 import { useEffect, useState } from "react";
-import type { PendingAsset, SessionState } from "@ai-asset-saver/shared";
+import type { PendingAsset, SessionState } from "@download-organizer/shared";
 import { loadSessionState, saveSessionState, DEFAULT_SESSION_STATE } from "../background/sessionManager.js";
 import { loadPendingAssets } from "../background/pendingAssetsStorage.js";
 import { PENDING_ASSETS_STORAGE_KEY } from "../background/storageKeys.js";
@@ -67,7 +67,7 @@ export function App() {
 
   return (
     <div className="aias-app" style={{ width: 320, padding: 16 }}>
-      <h1 className="aias-title">AI Asset Saver</h1>
+      <h1 className="aias-title">Download Organizer</h1>
 
       <div className={`aias-card${session.aiSessionEnabled ? " aias-session-card--on" : ""}`}>
         <div className="aias-row">

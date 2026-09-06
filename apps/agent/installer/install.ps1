@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Installs the AI Asset Saver Local Agent's Native Messaging registration.
+  Installs the Download Organizer Local Agent's Native Messaging registration.
 
 .DESCRIPTION
   Per Chrome's Native Messaging protocol, Chrome itself launches the Agent
@@ -21,8 +21,8 @@
   in the Agent's log.
 
 .PARAMETER AgentExePath
-  Path to the packaged AIAssetSaverAgent.exe. Defaults to a sibling of this
-  script named AIAssetSaverAgent.exe. Always resolved to an absolute path
+  Path to the packaged DownloadOrganizerAgent.exe. Defaults to a sibling of this
+  script named DownloadOrganizerAgent.exe. Always resolved to an absolute path
   before being written into the manifest — Chrome's native-messaging host
   manifest requires an absolute "path"; a relative one is silently invalid.
 
@@ -43,7 +43,7 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$ExtensionId,
 
-  [string]$AgentExePath = (Join-Path $PSScriptRoot "AIAssetSaverAgent.exe"),
+  [string]$AgentExePath = (Join-Path $PSScriptRoot "DownloadOrganizerAgent.exe"),
 
   [string]$DefaultRoot = ""
 )
@@ -61,20 +61,20 @@ if (-not (Test-Path $AgentExePath)) {
 # whatever was passed (default or custom, possibly relative) once, up front.
 $AgentExePath = (Resolve-Path $AgentExePath).Path
 
-$manifestDir = Join-Path $env:APPDATA "AIAssetSaver"
+$manifestDir = Join-Path $env:APPDATA "DownloadOrganizer"
 New-Item -ItemType Directory -Force -Path $manifestDir | Out-Null
 
-$manifestPath = Join-Path $manifestDir "com.ai_asset_saver.agent.json"
+$manifestPath = Join-Path $manifestDir "com.download_organizer.agent.json"
 $manifest = @{
-  name             = "com.ai_asset_saver.agent"
-  description      = "AI Asset Saver Local Agent"
+  name             = "com.download_organizer.agent"
+  description      = "Download Organizer Local Agent"
   path             = $AgentExePath
   type             = "stdio"
   allowed_origins  = @("chrome-extension://$ExtensionId/")
 }
 $manifest | ConvertTo-Json | Set-Content -Path $manifestPath -Encoding UTF8
 
-$registryKeyPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.ai_asset_saver.agent"
+$registryKeyPath = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\com.download_organizer.agent"
 New-Item -Path $registryKeyPath -Force | Out-Null
 Set-ItemProperty -Path $registryKeyPath -Name "(default)" -Value $manifestPath
 
@@ -127,6 +127,6 @@ if ($DefaultRoot -ne "") {
   }
 }
 
-Write-Host "AI Asset Saver Agent registered for extension chrome-extension://$ExtensionId/"
+Write-Host "Download Organizer Agent registered for extension chrome-extension://$ExtensionId/"
 Write-Host "Native messaging manifest: $manifestPath"
 Write-Host "No background service or Startup entry was installed (none is needed — see script header)."

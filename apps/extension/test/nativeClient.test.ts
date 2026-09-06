@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { NativeClient, NativeClientDisconnectedError, type NativePort } from "../src/background/nativeClient.js";
-import type { NativeRequest, NativeResponse } from "@ai-asset-saver/shared";
+import type { NativeRequest, NativeResponse } from "@download-organizer/shared";
 
 class FakePort implements NativePort {
   private messageListeners: Array<(msg: NativeResponse) => void> = [];

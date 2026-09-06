@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { JobManager, LOG_RETENTION_MS } from "../src/background/jobManager.js";
-import type { NamingFields, OrganizeLogEntry, PendingAsset } from "@ai-asset-saver/shared";
+import type { NamingFields, OrganizeLogEntry, PendingAsset } from "@download-organizer/shared";
 
 function naming(overrides: Partial<NamingFields> = {}): NamingFields {
   return {

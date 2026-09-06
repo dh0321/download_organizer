@@ -8,7 +8,7 @@
 #
 # This bundles the Agent into a single self-contained .mjs file (via esbuild —
 # see ../build-bundle.mjs) and installs it OUTSIDE the dev repo (default:
-# ~/Library/Application Support/AIAssetSaver/bin). This matters concretely if
+# ~/Library/Application Support/DownloadOrganizer/bin). This matters concretely if
 # the repo lives under ~/Desktop, ~/Documents, or ~/Downloads: those are
 # TCC-protected on modern macOS, and Chrome's native-messaging child process
 # gets a silent `file-read-data` sandbox denial reading anything under them
@@ -25,7 +25,7 @@ usage() {
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGENT_DIR="$SCRIPT_DIR/.."
-INSTALL_DIR="$HOME/Library/Application Support/AIAssetSaver/bin"
+INSTALL_DIR="$HOME/Library/Application Support/DownloadOrganizer/bin"
 EXTENSION_ID=""
 DEFAULT_ROOT=""
 
@@ -55,7 +55,7 @@ mkdir -p "$INSTALL_DIR"
 cp "$AGENT_DIR/dist-bundle/agent.mjs" "$INSTALL_DIR/agent.mjs"
 chmod +x "$INSTALL_DIR/agent.mjs"
 
-WRAPPER_PATH="$INSTALL_DIR/AIAssetSaverAgent.sh"
+WRAPPER_PATH="$INSTALL_DIR/DownloadOrganizerAgent.sh"
 cat > "$WRAPPER_PATH" <<'SH'
 #!/bin/bash
 # Chrome launches this as a GUI-app child process, which gets a minimal PATH
@@ -70,12 +70,12 @@ echo "Installed bundled Agent to: $INSTALL_DIR"
 
 MANIFEST_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 mkdir -p "$MANIFEST_DIR"
-MANIFEST_PATH="$MANIFEST_DIR/com.ai_asset_saver.agent.json"
+MANIFEST_PATH="$MANIFEST_DIR/com.download_organizer.agent.json"
 
 cat > "$MANIFEST_PATH" <<JSON
 {
-  "name": "com.ai_asset_saver.agent",
-  "description": "AI Asset Saver Local Agent",
+  "name": "com.download_organizer.agent",
+  "description": "Download Organizer Local Agent",
   "path": "$WRAPPER_PATH",
   "type": "stdio",
   "allowed_origins": ["chrome-extension://$EXTENSION_ID/"]
@@ -83,7 +83,7 @@ cat > "$MANIFEST_PATH" <<JSON
 JSON
 echo "Registered native messaging manifest: $MANIFEST_PATH"
 
-CONFIG_DIR="$HOME/.config/AIAssetSaver"
+CONFIG_DIR="$HOME/.config/DownloadOrganizer"
 mkdir -p "$CONFIG_DIR"
 
 CONFIG_PATH="$CONFIG_DIR/config.json"

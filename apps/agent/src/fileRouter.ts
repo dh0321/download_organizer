@@ -15,8 +15,8 @@ import {
   type AgentConfig,
   type NamingFields,
   type NativeErrorCode,
-} from "@ai-asset-saver/shared";
-import { PathTraversalError } from "@ai-asset-saver/shared";
+} from "@download-organizer/shared";
+import { PathTraversalError } from "@download-organizer/shared";
 
 export class RoutingError extends Error {
   constructor(

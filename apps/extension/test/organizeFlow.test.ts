@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { runOrganizeFlow } from "../src/background/organizeFlow.js";
 import { JobManager } from "../src/background/jobManager.js";
-import type { NamingFields, NativeRequest, NativeResponse, PendingAsset } from "@ai-asset-saver/shared";
+import type { NamingFields, NativeRequest, NativeResponse, PendingAsset } from "@download-organizer/shared";
 
 function naming(overrides: Partial<NamingFields> = {}): NamingFields {
   return {

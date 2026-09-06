@@ -4,7 +4,7 @@
 import path from "node:path";
 import os from "node:os";
 import { realpath as realpathAsync } from "node:fs/promises";
-import { buildFilename, type AgentConfig, type MediaType, type NativeRequest, type NativeResponse } from "@ai-asset-saver/shared";
+import { buildFilename, type AgentConfig, type MediaType, type NativeRequest, type NativeResponse } from "@download-organizer/shared";
 import { resolveSafeDestination, isWithinRoot, RoutingError } from "./fileRouter.js";
 import { moveIntoDestination } from "./fileMover.js";
 

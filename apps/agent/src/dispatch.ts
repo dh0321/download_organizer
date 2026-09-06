@@ -4,7 +4,7 @@
 // surface (§F-2 Minimum Privilege) — there is no other way for a request to cause
 // a filesystem operation.
 
-import type { NativeRequest, NativeResponse, OrganizeBatchItemResult } from "@ai-asset-saver/shared";
+import type { NativeRequest, NativeResponse, OrganizeBatchItemResult } from "@download-organizer/shared";
 import type { AgentConfigStore } from "./agentConfig.js";
 import type { JobWorkerPool } from "./jobQueue.js";
 import { handleRouteFile } from "./routeFile.js";

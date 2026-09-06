@@ -1,4 +1,4 @@
-# AI Asset Saver — 구현 계획 (v1)
+# Download Organizer — 구현 계획 (v1)
 
 > 작성일: 2026-08-31 — 최초 Implementation Plan 스냅샷. 이후 논의로 계획이 갱신되면 이 파일은 별도로 보존되는 "첫 번째 버전" 기록입니다.
 
@@ -20,7 +20,7 @@
 
 ## A. 제품 요약 (Product Summary)
 
-AI Asset Saver는 Chrome(Windows) 확장 프로그램으로, "AI Session" 토글이 켜져 있을 때만 허용된 AI 생성 사이트(ChatGPT, Gemini, 이후 Runway/Veo/Sora 등으로 확장 가능)에서의 이미지/영상 다운로드를 가로채, 설정된 규칙에 따라 파일명을 생성하고 사용자가 지정한 Windows 경로(비-Downloads 드라이브 또는 NAS/UNC 경로 가능) 아래의 Project → (선택)Sequence → (선택)Shot → Asset Bucket 구조로 라우팅합니다. Session이 꺼져 있거나 대상 사이트/확장자가 허용 목록에 없으면 Chrome의 일반 다운로드 동작이 그대로 유지됩니다. Native Messaging으로 한 번 설치하는 Windows Local Agent가 Chrome API가 접근할 수 없는 목적지까지 실제 파일 이동을 담당합니다.
+Download Organizer는 Chrome(Windows) 확장 프로그램으로, "AI Session" 토글이 켜져 있을 때만 허용된 AI 생성 사이트(ChatGPT, Gemini, 이후 Runway/Veo/Sora 등으로 확장 가능)에서의 이미지/영상 다운로드를 가로채, 설정된 규칙에 따라 파일명을 생성하고 사용자가 지정한 Windows 경로(비-Downloads 드라이브 또는 NAS/UNC 경로 가능) 아래의 Project → (선택)Sequence → (선택)Shot → Asset Bucket 구조로 라우팅합니다. Session이 꺼져 있거나 대상 사이트/확장자가 허용 목록에 없으면 Chrome의 일반 다운로드 동작이 그대로 유지됩니다. Native Messaging으로 한 번 설치하는 Windows Local Agent가 Chrome API가 접근할 수 없는 목적지까지 실제 파일 이동을 담당합니다.
 
 ## B. 핵심 기술 결정 (Key Technical Decision)
 
@@ -58,7 +58,7 @@ Chrome (Windows)
         │
         │  chrome.downloads API (Downloads 디렉터리 내부로 한정)
         ▼
-   OS Downloads 폴더 / _AIAssetSaver_staging/<uuid>.ext
+   OS Downloads 폴더 / _DownloadOrganizer_staging/<uuid>.ext
         │
         │  Native Messaging (stdio, JSON, 경로 정보 + jobId만 담은 작은 메시지)
         ▼
@@ -68,13 +68,13 @@ Windows Local Agent (Node.js/TypeScript, 단일 실행 파일로 패키징)
 ├─ File Router                      — root + hierarchy + bucket 조립, lazy mkdir
 ├─ Naming/Conflict Resolver         — 최종 파일명 결정 권한자, (예약된) index + 충돌 suffix, O_EXCL 생성
 ├─ File Mover                       — 목적지 볼륨에 임시복사 → atomic rename → 스테이징 삭제
-└─ Local Config                     — %APPDATA%\AIAssetSaver\config.json (AgentConfig: Root/Template 정본, §F-2) + 로그 파일
+└─ Local Config                     — %APPDATA%\DownloadOrganizer\config.json (AgentConfig: Root/Template 정본, §F-2) + 로그 파일
         │
         ▼
 Windows 파일 시스템 (로컬 드라이브, 매핑된 네트워크 드라이브, UNC/NAS)
 ```
 
-**왜 스테이징 하위 폴더 방식인가:** Chrome은 Downloads 디렉터리 내부에만 파일을 놓을 수 있으므로, Extension은 조건에 맞는 모든 다운로드를 Downloads 안의 전용 스테이징 하위 폴더(예: `Downloads\_AIAssetSaver_staging\<uuid>.ext`)로 리다이렉트합니다. `onChanged` → `state: "complete"`가 되면 확정된 **절대 경로**를 얻은 뒤, 원본 파일 바이트도, 조립된 목적지 경로도 아니라 `{jobId, sourcePath, naming: {project, sequence, shot, bucketId, ...}}` 같은 수백 바이트짜리 JSON만 Native Messaging으로 Agent에 전달합니다(`jobId`는 여러 다운로드가 동시에 처리 중일 때 요청/응답을 올바른 `DownloadJob`에 상관관계 짓기 위함 — §F-1 참고; `naming`은 논리적 필드일 뿐 경로가 아님 — §F-2 Root Sandbox Policy). 실제 경로 조립·이동은 전체 파일시스템 권한을 가진 Agent가 **자신이 보관한 Root/FolderTemplate 설정을 기준으로** 수행합니다. 이 방식은 충돌 감지 문제도 함께 해결합니다 — 실제 목적지 폴더를 stat/조회할 수 있는 것은 Agent뿐이므로, Chrome도 Extension도 아닌 Agent가 최종 경로와 파일명의 유일한 결정 권한을 가집니다.
+**왜 스테이징 하위 폴더 방식인가:** Chrome은 Downloads 디렉터리 내부에만 파일을 놓을 수 있으므로, Extension은 조건에 맞는 모든 다운로드를 Downloads 안의 전용 스테이징 하위 폴더(예: `Downloads\_DownloadOrganizer_staging\<uuid>.ext`)로 리다이렉트합니다. `onChanged` → `state: "complete"`가 되면 확정된 **절대 경로**를 얻은 뒤, 원본 파일 바이트도, 조립된 목적지 경로도 아니라 `{jobId, sourcePath, naming: {project, sequence, shot, bucketId, ...}}` 같은 수백 바이트짜리 JSON만 Native Messaging으로 Agent에 전달합니다(`jobId`는 여러 다운로드가 동시에 처리 중일 때 요청/응답을 올바른 `DownloadJob`에 상관관계 짓기 위함 — §F-1 참고; `naming`은 논리적 필드일 뿐 경로가 아님 — §F-2 Root Sandbox Policy). 실제 경로 조립·이동은 전체 파일시스템 권한을 가진 Agent가 **자신이 보관한 Root/FolderTemplate 설정을 기준으로** 수행합니다. 이 방식은 충돌 감지 문제도 함께 해결합니다 — 실제 목적지 폴더를 stat/조회할 수 있는 것은 Agent뿐이므로, Chrome도 Extension도 아닌 Agent가 최종 경로와 파일명의 유일한 결정 권한을 가집니다.
 
 ## D. Chrome Extension 아키텍처
 
@@ -242,7 +242,7 @@ function resolveSafeDestination(agentConfig, naming):
 
 ### AI Session OFF — 명확한 Safety Boundary
 
-AI Session이 OFF이면 AI Asset Saver는 다운로드에 **전혀** 개입하지 않습니다: rename 없음, move 없음, 폴더 생성 없음, **Local Agent에 어떤 종류의 Native Message도 전송하지 않음**(단순 상태 확인용 `ping`조차 보내지 않음 — Agent가 실행 중인지조차 필요할 때만 확인). 사용자는 Chrome 기본 다운로드/Save As로 원하는 위치에 직접 저장할 수 있으며 이 경로는 완전히 그대로 유지됩니다. 이는 §F의 게이트 1번이 이미 구현하고 있지만, 이번 요구사항으로 이를 "성능 최적화용 조기 종료"가 아니라 **명시적 보안 경계**로 재정의합니다: Session OFF 상태에서 다운로드 이벤트/데이터를 검사하는 코드 경로 자체를 최소화하고(§D `content-scripts`의 intent-ping도 Session이 OFF면 타임스탬프를 기록·전송하지 않도록 함 — 필요 없는 데이터를 애초에 만들지 않음), 이 불변식은 §P에서 "OFF일 때 native message 카운트가 정확히 0인지"를 직접 계측하는 테스트로 검증합니다.
+AI Session이 OFF이면 Download Organizer는 다운로드에 **전혀** 개입하지 않습니다: rename 없음, move 없음, 폴더 생성 없음, **Local Agent에 어떤 종류의 Native Message도 전송하지 않음**(단순 상태 확인용 `ping`조차 보내지 않음 — Agent가 실행 중인지조차 필요할 때만 확인). 사용자는 Chrome 기본 다운로드/Save As로 원하는 위치에 직접 저장할 수 있으며 이 경로는 완전히 그대로 유지됩니다. 이는 §F의 게이트 1번이 이미 구현하고 있지만, 이번 요구사항으로 이를 "성능 최적화용 조기 종료"가 아니라 **명시적 보안 경계**로 재정의합니다: Session OFF 상태에서 다운로드 이벤트/데이터를 검사하는 코드 경로 자체를 최소화하고(§D `content-scripts`의 intent-ping도 Session이 OFF면 타임스탬프를 기록·전송하지 않도록 함 — 필요 없는 데이터를 애초에 만들지 않음), 이 불변식은 §P에서 "OFF일 때 native message 카운트가 정확히 0인지"를 직접 계측하는 테스트로 검증합니다.
 
 ### Local Agent Minimum Privilege — 고정된 API Surface
 
@@ -462,7 +462,7 @@ type NativeResponse =
   | { type: "pong" };
 ```
 
-**저장 위치:** `Settings`, `SessionState`, `RecentActivityEntry[]`(최대 20개 링 버퍼) 모두 `chrome.storage.local`에 저장하며, **`storage.sync`는 사용하지 않습니다.** 이유: `defaultRoot`를 비롯한 모든 경로는 본질적으로 특정 머신의 Windows 경로이므로, 다른 머신/OS 프로필로 동기화하면 실제로 깨진 설정을 만들게 됩니다. 또한 `storage.sync`의 용량 제한(전체 약 100KB, 항목당 8KB)은 네이밍 프리셋/버킷이 늘어나면 부족합니다. Agent 쪽 로컬 전용 상태(연동된 extension id, 로그 경로)는 `%APPDATA%\AIAssetSaver\config.json`(단순 JSON)에 두며, 히스토리/검색 기능이 필요한 Phase 3 전까지는 SQLite를 도입하지 않습니다(§O 참고).
+**저장 위치:** `Settings`, `SessionState`, `RecentActivityEntry[]`(최대 20개 링 버퍼) 모두 `chrome.storage.local`에 저장하며, **`storage.sync`는 사용하지 않습니다.** 이유: `defaultRoot`를 비롯한 모든 경로는 본질적으로 특정 머신의 Windows 경로이므로, 다른 머신/OS 프로필로 동기화하면 실제로 깨진 설정을 만들게 됩니다. 또한 `storage.sync`의 용량 제한(전체 약 100KB, 항목당 8KB)은 네이밍 프리셋/버킷이 늘어나면 부족합니다. Agent 쪽 로컬 전용 상태(연동된 extension id, 로그 경로)는 `%APPDATA%\DownloadOrganizer\config.json`(단순 JSON)에 두며, 히스토리/검색 기능이 필요한 Phase 3 전까지는 SQLite를 도입하지 않습니다(§O 참고).
 
 ## J. UI 컴포넌트 구조 (Popup, React)
 
@@ -668,14 +668,14 @@ docs/
 
 ### 2. Agent 빌드: Mac에서 Windows용 실행 파일 크로스 컴파일
 
-Node.js 20/24 기준으로, `pkg`(현재는 `yao-pkg` 포크가 유지보수됨)는 **Mac 호스트에서 Windows(win-x64) 바이너리를 크로스 컴파일**하는 것을 공식 지원합니다. ([yao-pkg 문서](https://yao-pkg.github.io/pkg/guide/getting-started)) 즉 Agent(Node.js/TypeScript)를 Mac에서 그대로 작성하고, 배포 시점에는 Mac에서 `pkg --target node-win-x64`류의 명령으로 `AIAssetSaverAgent.exe`를 만들 수 있어 별도 Windows 빌드 머신이 필요 없습니다.
+Node.js 20/24 기준으로, `pkg`(현재는 `yao-pkg` 포크가 유지보수됨)는 **Mac 호스트에서 Windows(win-x64) 바이너리를 크로스 컴파일**하는 것을 공식 지원합니다. ([yao-pkg 문서](https://yao-pkg.github.io/pkg/guide/getting-started)) 즉 Agent(Node.js/TypeScript)를 Mac에서 그대로 작성하고, 배포 시점에는 Mac에서 `pkg --target node-win-x64`류의 명령으로 `DownloadOrganizerAgent.exe`를 만들 수 있어 별도 Windows 빌드 머신이 필요 없습니다.
 
 주의할 점(§Q 5와 연결): Phase 3에서 `better-sqlite3` 같은 네이티브 애드온을 도입하면 크로스 컴파일이 훨씬 까다로워지므로, 그 시점에는 GitHub Actions `windows-latest` 러너에서 네이티브 빌드하는 방식으로 전환하는 것을 전제로 합니다.
 
 ### 3. "쉬운 배포" — 설치 경험을 단순하게 만드는 두 축
 
 **(1) Agent 설치 — 더블클릭 1회로 끝나는 Windows 인스톨러**
-`pkg`로 만든 `.exe`와 `installer/install.ts`가 하는 일(레지스트리 키 + native-messaging manifest + 시작프로그램 바로가기)을 **Inno Setup**으로 하나의 설치 파일(`AIAssetSaverSetup.exe`)로 묶습니다. Inno Setup 컴파일러 자체는 네이티브로는 Windows용이지만, `innosetup-compiler`라는 npm 패키지로 Wine을 통해 비-Windows에서도 실행 가능하고, 더 안정적으로는 GitHub Actions `windows-latest` 러너에서 빌드하면 됩니다. 최종 사용자(팀원 등)는 이 설치 파일 하나만 실행하면 Agent 설치·등록·자동 시작 등록까지 끝납니다 — Node.js나 개발 도구를 설치할 필요가 없습니다.
+`pkg`로 만든 `.exe`와 `installer/install.ts`가 하는 일(레지스트리 키 + native-messaging manifest + 시작프로그램 바로가기)을 **Inno Setup**으로 하나의 설치 파일(`DownloadOrganizerSetup.exe`)로 묶습니다. Inno Setup 컴파일러 자체는 네이티브로는 Windows용이지만, `innosetup-compiler`라는 npm 패키지로 Wine을 통해 비-Windows에서도 실행 가능하고, 더 안정적으로는 GitHub Actions `windows-latest` 러너에서 빌드하면 됩니다. 최종 사용자(팀원 등)는 이 설치 파일 하나만 실행하면 Agent 설치·등록·자동 시작 등록까지 끝납니다 — Node.js나 개발 도구를 설치할 필요가 없습니다.
 
 **(2) Extension 배포 — Developer Mode 없이 설치되는 방식**
 사내/개인 도구 목적이라면 Chrome Web Store에 **"Unlisted"(링크를 아는 사람만 설치 가능, 검색 노출 없음)** 또는 **"Private"(Google Workspace 조직 내 지정 사용자만)** 형태로 등록하는 것을 권장합니다. 개발자 계정 등록비는 1회 5달러이며 이후 추가 확장 프로그램 게시에는 별도 비용이 없습니다. ([Chrome for Developers](https://developer.chrome.com/docs/webstore/cws-dashboard-distribution)) 이 방식이면 팀원들은 "Developer Mode 켜고 Load unpacked" 같은 개발자용 절차 없이 일반 확장 프로그램처럼 설치하고, 새 버전이 나오면 자동 업데이트됩니다. (완전히 개인 전용이라면 unpacked 폴더 배포로도 충분하며, 이 경우 Web Store 절차 자체를 생략할 수 있습니다.)
@@ -683,6 +683,6 @@ Node.js 20/24 기준으로, `pkg`(현재는 `yao-pkg` 포크가 유지보수됨)
 **(3) CI 파이프라인 (권장, `.github/workflows/windows-ci.yml`)**
 - Push/PR 시: `packages/shared` 단위 테스트(Ubuntu/Mac 러너로 충분), Extension 빌드.
 - `windows-latest` 러너에서: Agent 네이티브 통합 테스트(실제 임시 드라이브/폴더 대상), Native Messaging 등록 스크립트의 클린 설치/제거 검증.
-- 릴리스 태그 시: `windows-latest` 러너에서 Inno Setup으로 `AIAssetSaverSetup.exe`를 빌드해 GitHub Release에 첨부.
+- 릴리스 태그 시: `windows-latest` 러너에서 Inno Setup으로 `DownloadOrganizerSetup.exe`를 빌드해 GitHub Release에 첨부.
 
 이 구조를 쓰면 개발자는 계속 Mac에서 작업하되, "실제로 Windows에서 동작하는가"라는 이 프로젝트에서 가장 중요한 질문에 대한 답을 CI가 매번 자동으로 확인해 주고, 최종 사용자에게는 인스톨러 더블클릭 + (선택) Web Store 링크 클릭 두 가지 동작만 남습니다.

@@ -12,7 +12,7 @@ import {
   type OrganizeLogEntry,
   type PendingAsset,
   type SessionState,
-} from "@ai-asset-saver/shared";
+} from "@download-organizer/shared";
 import { loadSessionState, saveSessionState, DEFAULT_SESSION_STATE } from "../background/sessionManager.js";
 import { loadPendingAssets } from "../background/pendingAssetsStorage.js";
 import { loadOrganizeLog } from "../background/organizeLogStorage.js";
