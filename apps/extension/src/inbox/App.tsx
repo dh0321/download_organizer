@@ -76,9 +76,21 @@ function activeNamingTokens(template: string): Set<string> {
 }
 
 function buildTemplateFromTokens(tokens: Set<string>): string {
-  return NAMING_TOKENS.filter((t) => tokens.has(t.key))
-    .map((t) => `{${t.key}}`)
-    .join("_");
+  const parts: string[] = [];
+  for (const t of NAMING_TOKENS) {
+    if (t.key === "shot") {
+      if (tokens.has("shot")) parts.push("{shot}");
+      // {type} (IMG/VID/AUD) isn't one of the toggle-able chips above — it's
+      // always present regardless of toggle state, right after {shot}'s slot
+      // (matching the default template's shape). Toggling any chip used to
+      // silently drop it from the filename entirely, since this function
+      // only ever emitted tokens from NAMING_TOKENS.
+      parts.push("{type}");
+      continue;
+    }
+    if (tokens.has(t.key)) parts.push(`{${t.key}}`);
+  }
+  return parts.join("_");
 }
 
 // "en-US" is pinned explicitly everywhere below (not the browser/OS default
@@ -274,20 +286,41 @@ function Thumbnail({ asset }: { asset: PendingAsset }) {
   const [errored, setErrored] = useState(false);
 
   useEffect(() => {
-    // A Rescan-via-folder-scan asset has no real chrome.downloads id (see
-    // PendingAsset.browserDownloadId) — fall straight to the generic icon.
-    if (asset.browserDownloadId == null) {
-      setErrored(true);
+    setIconUrl(null);
+    setErrored(false);
+
+    function showIconFor(downloadId: number) {
+      chrome.downloads.getFileIcon(downloadId, { size: 32 }, (url) => {
+        if (chrome.runtime.lastError || !url) {
+          setErrored(true);
+          return;
+        }
+        setIconUrl(url);
+      });
+    }
+
+    if (asset.browserDownloadId != null) {
+      showIconFor(asset.browserDownloadId);
       return;
     }
-    chrome.downloads.getFileIcon(asset.browserDownloadId, { size: 32 }, (url) => {
-      if (chrome.runtime.lastError || !url) {
+
+    // A Rescan-via-folder-scan asset has no browserDownloadId of its own (see
+    // PendingAsset.browserDownloadId) — but the file may still have a live
+    // chrome.downloads history entry (e.g. it was downloaded while Watch Mode
+    // was off, or before the extension was reloaded), which still lets
+    // Chrome generate a real icon. `filename` is an exact match on the
+    // absolute path (see chrome.downloads.DownloadQuery), same path Rescan
+    // itself uses as sourcePath. Falls through to the generic fallback below
+    // if there's no match (e.g. the history entry was since cleared).
+    chrome.downloads.search({ filename: asset.sourcePath }, (results) => {
+      const matchId = results[0]?.id;
+      if (matchId != null) {
+        showIconFor(matchId);
+      } else {
         setErrored(true);
-        return;
       }
-      setIconUrl(url);
     });
-  }, [asset.browserDownloadId]);
+  }, [asset.browserDownloadId, asset.sourcePath]);
 
   if (iconUrl && !errored) {
     // eslint-disable-next-line jsx-a11y/alt-text
@@ -646,7 +679,7 @@ export function App() {
         return;
       }
       setRescanCandidates(candidates);
-      setRescanSelectedIds(new Set(candidates.map((c) => c.sourcePath)));
+      setRescanSelectedIds(new Set()); // nothing pre-checked — the user picks what to import
       setRescanExpandedDays(new Set()); // every day group starts collapsed
     });
   }
@@ -807,16 +840,7 @@ export function App() {
           </div>
         </div>
 
-        {assets.length === 0 && (
-          <div className="aias-card">
-            <p className="aias-subtext" style={{ margin: 0 }}>
-              No downloads yet. Turn Watch Mode on and download an image or video.
-            </p>
-          </div>
-        )}
-
-        {assets.length > 0 && (
-          <div className="aias-inbox-split">
+        <div className="aias-inbox-split">
             <div className="aias-inbox-list-pane">
               <div className="aias-inbox-list-header">
                 <div className="aias-row">
@@ -879,9 +903,11 @@ export function App() {
               <div className="aias-inbox-list">
                 {visibleAssets.length === 0 && (
                   <p className="aias-subtext" style={{ margin: "16px" }}>
-                    {searchQuery.trim()
-                      ? `No files match "${searchQuery.trim()}".`
-                      : `No ${FILTER_LABEL[mediaTypeFilter].toLowerCase()} in the Inbox right now.`}
+                    {assets.length === 0
+                      ? "No downloads yet. Turn Watch Mode on and download an image, video, or audio file — or click Rescan Downloads above to pull in files already sitting in your Downloads folder."
+                      : searchQuery.trim()
+                        ? `No files match "${searchQuery.trim()}".`
+                        : `No ${FILTER_LABEL[mediaTypeFilter].toLowerCase()} in the Inbox right now.`}
                   </p>
                 )}
                 {visibleAssets.map((asset) => {
@@ -1143,8 +1169,7 @@ export function App() {
                 );
               })()}
             </div>
-          </div>
-        )}
+        </div>
 
         {organizeLog.length > 0 && (
           <div className="aias-card aias-organize-log">
