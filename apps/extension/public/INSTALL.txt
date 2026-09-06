@@ -8,8 +8,12 @@ STEP 1 — Install the Local Agent
   or downloaded separately). It doesn't need administrator rights.
 
 STEP 2 — Unzip this extension
-  Extract this zip file somewhere permanent (e.g. Documents) — don't delete
-  or move that folder afterward, since Chrome keeps loading it from there.
+  Extract this zip file to exactly this folder:
+    %USERPROFILE%\Documents\DownloadOrganizer-Extension
+  (paste that path into File Explorer's address bar, or just navigate to
+  Documents and create a "DownloadOrganizer-Extension" folder there).
+  Don't delete or move it afterward, since Chrome keeps loading it from
+  there — and update.bat (see below) expects it at this exact location.
 
 STEP 3 — Load it into Chrome
   1. Open Chrome and go to: chrome://extensions
@@ -27,3 +31,10 @@ STEP 4 — Check it's connected
 
 That's it — turn on "Watch Mode" from the popup, download an image/video/
 audio file, and it'll show up in the Inbox to review and organize.
+
+GETTING UPDATES LATER
+  Download update.bat once (also attached to the same GitHub Release this
+  came from) and keep it somewhere handy — double-click it any time a new
+  version comes out. It downloads and applies both the Agent and the
+  extension automatically; you'll just need to reload the extension from
+  chrome://extensions afterward, same as Step 3.4 above.

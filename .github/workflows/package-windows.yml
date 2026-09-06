@@ -64,8 +64,21 @@ jobs:
           path: apps/extension/dist
           if-no-files-found: error
 
-      - name: Attach installer to the GitHub Release
+      # GitHub Releases (unlike Artifacts) don't expire, need no login to
+      # download, and get a stable "latest" URL — see update.bat, which
+      # downloads from exactly these filenames under
+      # .../releases/latest/download/. Release assets must be actual files,
+      # so (unlike the Artifacts upload above) the extension dist folder
+      # needs zipping first.
+      - name: Zip the extension for the Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: Compress-Archive -Path apps/extension/dist/* -DestinationPath download-organizer-extension.zip
+
+      - name: Attach files to the GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: apps/agent/dist-bundle/DownloadOrganizerSetup.exe
+          files: |
+            apps/agent/dist-bundle/DownloadOrganizerSetup.exe
+            download-organizer-extension.zip
+            apps/agent/installer/update.bat
