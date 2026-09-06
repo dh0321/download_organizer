@@ -15,6 +15,12 @@ on:
     tags:
       - "v*"
 
+# The auto-generated GITHUB_TOKEN defaults to read-only in many repos/orgs —
+# softprops/action-gh-release needs write access to create the Release and
+# upload assets to it.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
