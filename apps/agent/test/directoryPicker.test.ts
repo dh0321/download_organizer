@@ -29,10 +29,35 @@ describe("pickDirectoryWindows", () => {
     expect(execFileFn).toHaveBeenCalledWith("powershell", expect.arrayContaining(["-NoProfile", "-NonInteractive"]));
   });
 
-  it("returns null when stdout is empty (user cancelled — FolderBrowserDialog returns Cancel)", async () => {
+  it("returns null when stdout is empty (user cancelled — Shell.Application's BrowseForFolder returns nothing)", async () => {
     const execFileFn = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
     const path = await pickDirectoryWindows(execFileFn);
     expect(path).toBeNull();
+  });
+
+  it("runs the script via -File against a real temp .ps1, not inline -Command — sidesteps command-line quoting issues confirmed live (see directoryPicker.ts's comment)", async () => {
+    const { readFile, access } = await import("node:fs/promises");
+    let scriptPathSeen = "";
+    const execFileFn = vi.fn(async (_file: string, args: string[]) => {
+      const fileIdx = args.indexOf("-File");
+      scriptPathSeen = args[fileIdx + 1];
+      // The script must actually be readable on disk at the moment
+      // PowerShell would run it — proves this isn't just a plausible-looking
+      // path string.
+      const contents = await readFile(scriptPathSeen, "utf-8");
+      expect(contents).toContain("Shell.Application");
+      return { stdout: "C:\\Projects\r\n", stderr: "" };
+    });
+
+    const path = await pickDirectoryWindows(execFileFn);
+
+    expect(path).toBe("C:\\Projects");
+    expect(execFileFn).toHaveBeenCalledWith(
+      "powershell",
+      expect.arrayContaining(["-Sta", "-ExecutionPolicy", "Bypass", "-File", scriptPathSeen]),
+    );
+    // Cleaned up afterward — no leftover temp files.
+    await expect(access(scriptPathSeen)).rejects.toThrow();
   });
 });
 
