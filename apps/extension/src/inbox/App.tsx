@@ -76,21 +76,9 @@ function activeNamingTokens(template: string): Set<string> {
 }
 
 function buildTemplateFromTokens(tokens: Set<string>): string {
-  const parts: string[] = [];
-  for (const t of NAMING_TOKENS) {
-    if (t.key === "shot") {
-      if (tokens.has("shot")) parts.push("{shot}");
-      // {type} (IMG/VID/AUD) isn't one of the toggle-able chips above — it's
-      // always present regardless of toggle state, right after {shot}'s slot
-      // (matching the default template's shape). Toggling any chip used to
-      // silently drop it from the filename entirely, since this function
-      // only ever emitted tokens from NAMING_TOKENS.
-      parts.push("{type}");
-      continue;
-    }
-    if (tokens.has(t.key)) parts.push(`{${t.key}}`);
-  }
-  return parts.join("_");
+  return NAMING_TOKENS.filter((t) => tokens.has(t.key))
+    .map((t) => `{${t.key}}`)
+    .join("_");
 }
 
 // "en-US" is pinned explicitly everywhere below (not the browser/OS default
@@ -482,6 +470,7 @@ export function App() {
   const [pathSep, setPathSep] = useState<"\\" | "/">("\\");
   const [pickingFolder, setPickingFolder] = useState(false);
   const [folderPickerError, setFolderPickerError] = useState("");
+  const [openFileError, setOpenFileError] = useState("");
   const [organizeLog, setOrganizeLog] = useState<OrganizeLogEntry[]>([]);
   const [organizeLogExpanded, setOrganizeLogExpanded] = useState(false);
   const [confirmingEmptyInbox, setConfirmingEmptyInbox] = useState(false);
@@ -993,13 +982,30 @@ export function App() {
                               : undefined
                           }
                           onClick={() => {
-                            if (asset.browserDownloadId != null) chrome.downloads.open(asset.browserDownloadId);
+                            if (asset.browserDownloadId == null) return;
+                            setOpenFileError("");
+                            // chrome.downloads.open() takes no callback and never throws —
+                            // on failure it only sets chrome.runtime.lastError (e.g. the
+                            // download was removed from Chrome's history, or its file no
+                            // longer exists on disk), which must be read synchronously
+                            // right here or it's lost. Without this check the button just
+                            // silently did nothing on failure — confirmed live.
+                            chrome.downloads.open(asset.browserDownloadId);
+                            if (chrome.runtime.lastError) {
+                              setOpenFileError(chrome.runtime.lastError.message ?? "Couldn't open the file.");
+                            }
                           }}
                         >
                           Open file
                         </button>
                       </div>
                     </div>
+
+                    {openFileError && (
+                      <p className="aias-subtext" style={{ color: "#b3413f" }}>
+                        {openFileError}
+                      </p>
+                    )}
 
                     {asset.status === "failed" && asset.errorMessage && (
                       <p className="aias-subtext" style={{ color: "#b3413f" }}>

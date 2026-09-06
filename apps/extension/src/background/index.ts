@@ -87,7 +87,7 @@ function buildDefaultNaming(): NamingFields {
     bucketId: sessionSnapshotCache.batchDefaultBucketId,
     description: "",
     namingPresetId: "default",
-    namingTemplate: "{shot}_{type}_{description}_{source}_{index}", // Phase 1: single built-in preset (§O)
+    namingTemplate: "{shot}_{description}_{source}_{index}", // Phase 1: single built-in preset (§O)
     customFilenameEnabled: false,
     customFilename: "",
     customDirectoryEnabled: false,
