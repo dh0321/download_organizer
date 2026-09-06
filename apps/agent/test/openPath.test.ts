@@ -18,43 +18,41 @@ describe("openPath", () => {
   });
 
   describe("on win32", () => {
-    it("unblocks the file (Zone.Identifier) before launching it, passing the path via $args rather than interpolation", async () => {
+    it("deletes the Zone.Identifier ADS directly via fs, not PowerShell", async () => {
       const execFileFn = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
       const spawnFn = vi.fn();
-      await openPath("D:\\AI Projects\\hero.png", "win32", execFileFn, spawnFn);
-      expect(execFileFn).toHaveBeenCalledWith(
-        "powershell",
-        expect.arrayContaining(["-Command", "Unblock-File -LiteralPath $args[0]", "D:\\AI Projects\\hero.png"]),
-      );
+      const unlinkFn = vi.fn().mockResolvedValue(undefined);
+      await openPath("D:\\AI Projects\\hero.png", "win32", execFileFn, spawnFn, unlinkFn);
+      expect(unlinkFn).toHaveBeenCalledWith("D:\\AI Projects\\hero.png:Zone.Identifier");
+      // No PowerShell process at all for this step anymore — that's what
+      // made every open feel stuck (cold-start latency) and, on top of
+      // that, never actually worked (see the file-level comment).
+      expect(execFileFn).not.toHaveBeenCalled();
     });
 
     it("launches the file via a fire-and-forget spawn, not execFile, with an empty title arg for `start`", async () => {
-      const execFileFn = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
       const spawnFn = vi.fn();
-      await openPath("D:\\AI Projects\\hero.png", "win32", execFileFn, spawnFn);
+      const unlinkFn = vi.fn().mockResolvedValue(undefined);
+      await openPath("D:\\AI Projects\\hero.png", "win32", undefined, spawnFn, unlinkFn);
       expect(spawnFn).toHaveBeenCalledWith("cmd", ["/c", "start", "", "D:\\AI Projects\\hero.png"]);
-      // Only the Unblock-File step goes through execFile — the actual launch
-      // must not, since waiting on it is what caused the Inbox button to
-      // hang on "Opening…" indefinitely against a viewer app left open.
-      expect(execFileFn).toHaveBeenCalledTimes(1);
     });
 
-    it("still opens the file even when Unblock-File fails (e.g. non-NTFS volume)", async () => {
-      const execFileFn = vi.fn().mockRejectedValue(new Error("Unblock-File : Cannot find drive"));
+    it("still opens the file even when deleting the ADS fails (already unblocked, non-NTFS volume, etc.)", async () => {
       const spawnFn = vi.fn();
-      await openPath("D:\\hero.png", "win32", execFileFn, spawnFn);
+      const unlinkFn = vi.fn().mockRejectedValue(new Error("ENOENT"));
+      await openPath("D:\\hero.png", "win32", undefined, spawnFn, unlinkFn);
       expect(spawnFn).toHaveBeenCalledWith("cmd", ["/c", "start", "", "D:\\hero.png"]);
     });
 
     it("resolves without waiting for spawnFn to report anything (fire-and-forget)", async () => {
-      const execFileFn = vi.fn().mockResolvedValue({ stdout: "", stderr: "" });
+      const unlinkFn = vi.fn().mockResolvedValue(undefined);
       let spawnCalled = false;
       const spawnFn = vi.fn(() => {
         spawnCalled = true;
         // Never resolves/rejects anything — spawnFn's return type is void,
         // simulating a detached, unref'd child that outlives this call.
       });
-      await openPath("D:\\hero.png", "win32", execFileFn, spawnFn);
+      await openPath("D:\\hero.png", "win32", undefined, spawnFn, unlinkFn);
       expect(spawnCalled).toBe(true);
     });
   });
