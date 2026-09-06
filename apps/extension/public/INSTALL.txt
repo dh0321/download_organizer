@@ -1,0 +1,29 @@
+Download Organizer — Installation
+
+This extension isn't published on the Chrome Web Store, so Chrome needs
+"Developer mode" turned on to load it. It's a one-time setup per computer.
+
+STEP 1 — Install the Local Agent
+  Run DownloadOrganizerSetup.exe first (the file that came with this zip,
+  or downloaded separately). It doesn't need administrator rights.
+
+STEP 2 — Unzip this extension
+  Extract this zip file somewhere permanent (e.g. Documents) — don't delete
+  or move that folder afterward, since Chrome keeps loading it from there.
+
+STEP 3 — Load it into Chrome
+  1. Open Chrome and go to: chrome://extensions
+  2. Turn on "Developer mode" (top-right toggle).
+  3. Click "Load unpacked".
+  4. Select the folder you extracted in Step 2 (the one containing
+     manifest.json — the top level of the extracted zip, not a subfolder).
+  5. Download Organizer should now appear in your extensions list and in
+     the toolbar.
+
+STEP 4 — Check it's connected
+  Click the Download Organizer icon in the toolbar. The status line at the
+  bottom should say "Local App connected" within a couple of seconds. If it
+  says "not running", double-check Step 1 completed successfully.
+
+That's it — turn on "Watch Mode" from the popup, download an image/video/
+audio file, and it'll show up in the Inbox to review and organize.

@@ -49,6 +49,21 @@ jobs:
           path: apps/agent/dist-bundle/DownloadOrganizerSetup.exe
           if-no-files-found: error
 
+      # Built here too (not just the Agent) so a Windows machine never needs
+      # to clone the repo at all — both files come from the same Actions run.
+      # actions/upload-artifact zips a directory automatically on download,
+      # so no separate zip step is needed.
+      - name: Build the extension
+        working-directory: apps/extension
+        run: npm run build
+
+      - name: Upload extension as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: download-organizer-extension
+          path: apps/extension/dist
+          if-no-files-found: error
+
       - name: Attach installer to the GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
