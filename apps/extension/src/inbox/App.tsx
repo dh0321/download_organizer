@@ -741,7 +741,17 @@ export function App() {
     chrome.runtime.sendMessage({ type: "aias-organize", ids }, (res) => {
       setOrganizing(false);
       setOrganizeProgress(null);
-      if (!res?.ok) setOrganizeError(res?.error ?? "Organize failed");
+      if (!res?.ok) {
+        setOrganizeError(res?.error ?? "Organize failed");
+        return;
+      }
+      // Sweeps freshly-"organized" assets into the visible Recently
+      // Organized log right away — this normally only runs once per fresh
+      // Inbox page load (see the mount effect above and
+      // JobManager.pruneOrganizedIntoLog), so without this, a successful
+      // Organize left the log empty until the next manual reload even
+      // though the files had already moved — confirmed live.
+      chrome.runtime.sendMessage({ type: "aias-prune-organized" });
     });
   }
 
