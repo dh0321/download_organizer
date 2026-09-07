@@ -264,23 +264,49 @@ function relativeToRoot(picked: string, root: string): string | null {
  * local resource") — this is Chrome blocking local-file reads from any
  * regular renderer page, regardless of the "Allow access to file URLs"
  * toggle (that only governs content scripts / host-permission matching on
- * file: pages, not in-page subresource loads). `chrome.downloads.getFileIcon`
- * sidesteps this entirely: Chrome itself reads the file (using its own OS
- * icon/thumbnail generation) and hands back a ready-to-use data: URL, so the
- * page never touches the filesystem directly.
+ * file: pages, not in-page subresource loads). For images, the Agent reads
+ * the real file and hands back a data: URL instead (see
+ * readThumbnail.ts) — real filesystem access Chrome doesn't expose, same
+ * pattern as pickDirectory/openPath. Video isn't covered this way (would
+ * need real frame extraction, e.g. ffmpeg — much heavier, and awkward to
+ * cross-compile via pkg); audio has no meaningful visual thumbnail either.
+ * Both fall back to `chrome.downloads.getFileIcon`, which sidesteps the
+ * file:// restriction differently: Chrome itself reads the file using its
+ * own OS icon generation and hands back a ready-to-use data: URL, so the
+ * page never touches the filesystem directly — just a generic/small icon
+ * rather than a real preview, and only available for a file Chrome's own
+ * download history still has a record of (see the comment further down).
  */
 function Thumbnail({ asset }: { asset: PendingAsset }) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewErrored, setPreviewErrored] = useState(false);
   const [iconUrl, setIconUrl] = useState<string | null>(null);
-  const [errored, setErrored] = useState(false);
+  const [iconErrored, setIconErrored] = useState(false);
 
   useEffect(() => {
+    setPreviewUrl(null);
+    setPreviewErrored(false);
+    if (asset.mediaType !== "image") return; // video/audio always use the icon fallback below
+    chrome.runtime.sendMessage({ type: "aias-read-thumbnail", path: asset.sourcePath }, (res) => {
+      if (res?.ok) setPreviewUrl(res.dataUrl);
+      else setPreviewErrored(true);
+    });
+  }, [asset.mediaType, asset.sourcePath]);
+
+  // Only actually needed for video/audio, or when an image's real preview
+  // failed (Agent not running, unsupported format, file too large — see
+  // readThumbnail.ts's MAX_SOURCE_BYTES).
+  const needsIconFallback = asset.mediaType !== "image" || previewErrored;
+
+  useEffect(() => {
+    if (!needsIconFallback) return;
     setIconUrl(null);
-    setErrored(false);
+    setIconErrored(false);
 
     function showIconFor(downloadId: number) {
       chrome.downloads.getFileIcon(downloadId, { size: 32 }, (url) => {
         if (chrome.runtime.lastError || !url) {
-          setErrored(true);
+          setIconErrored(true);
           return;
         }
         setIconUrl(url);
@@ -305,14 +331,18 @@ function Thumbnail({ asset }: { asset: PendingAsset }) {
       if (matchId != null) {
         showIconFor(matchId);
       } else {
-        setErrored(true);
+        setIconErrored(true);
       }
     });
-  }, [asset.browserDownloadId, asset.sourcePath]);
+  }, [needsIconFallback, asset.browserDownloadId, asset.sourcePath]);
 
-  if (iconUrl && !errored) {
+  if (previewUrl && !previewErrored) {
     // eslint-disable-next-line jsx-a11y/alt-text
-    return <img className="aias-thumb" src={iconUrl} onError={() => setErrored(true)} />;
+    return <img className="aias-thumb" src={previewUrl} onError={() => setPreviewErrored(true)} />;
+  }
+  if (iconUrl && !iconErrored) {
+    // eslint-disable-next-line jsx-a11y/alt-text
+    return <img className="aias-thumb" src={iconUrl} onError={() => setIconErrored(true)} />;
   }
   return <div className="aias-thumb aias-thumb-fallback">{asset.mediaType.toUpperCase()}</div>;
 }
@@ -867,7 +897,7 @@ export function App() {
                     {rescanning ? "Scanning…" : "Rescan Downloads"}
                   </button>
                   <button className="aias-btn aias-btn-ghost aias-btn-sm" onClick={emptyInbox}>
-                    {confirmingEmptyInbox ? "Click again to confirm" : "Empty Inbox"}
+                    {confirmingEmptyInbox ? "Click Again" : "Empty Inbox"}
                   </button>
                   <button
                     className="aias-btn aias-btn-ghost aias-btn-sm"

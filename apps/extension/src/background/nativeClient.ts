@@ -186,5 +186,9 @@ function responseTypeFor(requestType: NativeRequest["type"]): NativeResponse["ty
       return "pick-directory-result";
     case "list-downloads-folder":
       return "list-downloads-folder-result";
+    case "open-path":
+      return "open-path-result";
+    case "read-thumbnail":
+      return "read-thumbnail-result";
   }
 }

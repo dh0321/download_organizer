@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Jimp } from "jimp";
 import { dispatch } from "../src/dispatch.js";
 import { AgentConfigStore, defaultAgentConfig } from "../src/agentConfig.js";
 import { JobWorkerPool } from "../src/jobQueue.js";
@@ -224,6 +225,28 @@ describe("dispatch", () => {
     vi.mocked(openPath).mockRejectedValueOnce(new Error("ENOENT: no such file"));
     const res = await dispatch({ configStore, jobQueue }, { type: "open-path", path: "/missing" });
     expect(res).toMatchObject({ type: "open-path-result", ok: false });
+  });
+
+  it("returns a downscaled PNG data URL for read-thumbnail against a real image file", async () => {
+    const filePath = path.join(downloadsDir, "hero.png");
+    const source = new Jimp({ width: 800, height: 600, color: 0x00ff00ff });
+    await writeFile(filePath, await source.getBuffer("image/png"));
+
+    const res = await dispatch({ configStore, jobQueue }, { type: "read-thumbnail", path: filePath });
+    expect(res.type).toBe("read-thumbnail-result");
+    if (res.type === "read-thumbnail-result" && res.ok) {
+      expect(res.dataUrl.startsWith("data:image/png;base64,")).toBe(true);
+    } else {
+      expect.fail("expected ok:true");
+    }
+  });
+
+  it("returns ok:false when read-thumbnail fails (missing file, unsupported type, etc.)", async () => {
+    const res = await dispatch(
+      { configStore, jobQueue },
+      { type: "read-thumbnail", path: path.join(downloadsDir, "missing.png") },
+    );
+    expect(res).toMatchObject({ type: "read-thumbnail-result", ok: false });
   });
 
   it("returns ok:true with a null path when the user cancels the dialog", async () => {

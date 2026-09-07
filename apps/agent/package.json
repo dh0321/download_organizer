@@ -12,7 +12,8 @@
     "package:win": "pkg dist-bundle/agent.cjs --targets node22-win-x64 --output dist-bundle/DownloadOrganizerAgent.exe"
   },
   "dependencies": {
-    "@download-organizer/shared": "*"
+    "@download-organizer/shared": "*",
+    "jimp": "^1.6.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

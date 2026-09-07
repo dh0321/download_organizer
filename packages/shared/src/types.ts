@@ -263,7 +263,14 @@ export type NativeRequest =
    * download history, so it works for every Pending Asset (including ones
    * imported via Rescan's folder scan, which never had a history entry).
    */
-  | { type: "open-path"; path: string };
+  | { type: "open-path"; path: string }
+  /**
+   * Reads an image (not video/audio — see readThumbnail.ts) and returns it
+   * as a data: URL for the Inbox's Thumbnail — Chrome blocks file:// loads
+   * from a chrome-extension:// document outright, so the Agent (real
+   * filesystem access) has to hand back the bytes itself.
+   */
+  | { type: "read-thumbnail"; path: string };
 
 export type NativeErrorCode =
   | "OUTSIDE_ROOT"
@@ -289,6 +296,8 @@ export type NativeResponse =
   | { type: "list-downloads-folder-result"; ok: false; error: string }
   | { type: "open-path-result"; ok: true }
   | { type: "open-path-result"; ok: false; error: string }
+  | { type: "read-thumbnail-result"; ok: true; dataUrl: string }
+  | { type: "read-thumbnail-result"; ok: false; error: string }
   /**
    * Unsolicited push message, not a response to any particular request — the
    * Agent writes zero or more of these to stdout while an "organize-batch" is

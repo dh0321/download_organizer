@@ -145,7 +145,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     nativeClient
       .send({ type: "ping" }, 3000)
       .then(() => sendResponse({ connected: true }))
-      .catch(() => sendResponse({ connected: false }));
+      .catch((err) => {
+        // Was previously discarded entirely — the popup/Inbox just showed a
+        // plain "disconnected" badge with zero indication of why (missing
+        // native messaging host manifest? wrong allowed_origins? Agent
+        // crashed?). Logging it here is the only way to see the actual
+        // chrome.runtime.lastError text, since NativeClient's own
+        // rejection never calls console.error on its own (by design, so a
+        // simply-not-installed-yet Agent doesn't spam the console).
+        console.error("[aias-ping-agent] native messaging connection failed:", err);
+        sendResponse({ connected: false });
+      });
     return true;
   }
 
@@ -170,6 +180,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         else sendResponse({ type: "open-path-result", ok: false, error: "unexpected response" });
       })
       .catch((err) => sendResponse({ type: "open-path-result", ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (message?.type === "aias-read-thumbnail") {
+    nativeClient
+      .send({ type: "read-thumbnail", path: message.path }, 10_000)
+      .then((res) => {
+        if (res.type === "read-thumbnail-result") sendResponse(res);
+        else sendResponse({ type: "read-thumbnail-result", ok: false, error: "unexpected response" });
+      })
+      .catch((err) => sendResponse({ type: "read-thumbnail-result", ok: false, error: String(err) }));
     return true;
   }
 
@@ -291,6 +312,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     });
     return true;
   }
+
+  // Unrecognized message type — no response expected, let any other listener
+  // handle it (Chrome's contract for onMessage: returning nothing/false means
+  // "not mine"). Explicit so this file satisfies noImplicitReturns, added
+  // after it caught a real bug elsewhere (nativeClient.ts's responseTypeFor
+  // missing a case) that this same "some branches return, one falls through"
+  // shape had been silently hiding.
+  return;
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {

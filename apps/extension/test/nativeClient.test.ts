@@ -38,6 +38,33 @@ describe("NativeClient", () => {
     expect(r2).toMatchObject({ jobId: "b", finalPath: "/dest/b.png" });
   });
 
+  // Regression test for a real bug: responseTypeFor's switch was missing a
+  // case for "open-path", so it silently returned undefined instead of
+  // "open-path-result" — every open-path send() then waited on the wrong
+  // key forever and timed out with the literal message "Timed out waiting
+  // for undefined", even though the Agent responded correctly every time.
+  // Exercises every non-route-file request type so a future addition that
+  // forgets this mapping fails here instead of shipping silently.
+  it.each([
+    [{ type: "ping" }, { type: "pong" }],
+    [{ type: "get-settings" }, { type: "get-settings-result", settings: {} as any }],
+    [{ type: "sync-settings", settings: {} as any }, { type: "sync-settings-result", ok: true }],
+    [{ type: "get-max-index", naming: {} as any }, { type: "get-max-index-result", maxIndex: 0 }],
+    [{ type: "organize-batch", items: [] }, { type: "organize-batch-result", results: [] }],
+    [{ type: "pick-directory" }, { type: "pick-directory-result", ok: true, path: null }],
+    [{ type: "list-downloads-folder" }, { type: "list-downloads-folder-result", ok: true, files: [] }],
+    [{ type: "open-path", path: "/tmp/x" }, { type: "open-path-result", ok: true }],
+    [{ type: "read-thumbnail", path: "/tmp/x.png" }, { type: "read-thumbnail-result", ok: true, dataUrl: "data:image/png;base64," }],
+  ] satisfies Array<[NativeRequest, NativeResponse]>)("resolves %j on its matching response", async (request, response) => {
+    const port = new FakePort();
+    const client = new NativeClient(() => port);
+
+    const pending = client.send(request);
+    port.emit(response);
+
+    await expect(pending).resolves.toEqual(response);
+  });
+
   it("matches non-route-file requests FIFO by response type", async () => {
     const port = new FakePort();
     const client = new NativeClient(() => port);

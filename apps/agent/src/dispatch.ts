@@ -12,6 +12,7 @@ import { getMaxIndex } from "./getMaxIndex.js";
 import { pickDirectory } from "./directoryPicker.js";
 import { listDownloadsFolder } from "./listDownloadsFolder.js";
 import { openPath } from "./openPath.js";
+import { readThumbnail } from "./readThumbnail.js";
 
 export interface DispatchDeps {
   configStore: AgentConfigStore;
@@ -113,6 +114,15 @@ export async function dispatch(deps: DispatchDeps, req: NativeRequest): Promise<
         return { type: "open-path-result", ok: true };
       } catch (e) {
         return { type: "open-path-result", ok: false, error: (e as Error).message };
+      }
+    }
+
+    case "read-thumbnail": {
+      try {
+        const dataUrl = await readThumbnail(req.path);
+        return { type: "read-thumbnail-result", ok: true, dataUrl };
+      } catch (e) {
+        return { type: "read-thumbnail-result", ok: false, error: (e as Error).message };
       }
     }
   }

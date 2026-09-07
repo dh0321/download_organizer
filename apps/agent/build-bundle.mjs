@@ -17,9 +17,17 @@ await build({
   format: "esm",
   platform: "node",
   target: "node20",
-  // No banner needed — esbuild already preserves src/index.ts's own leading
-  // "#!/usr/bin/env node" shebang line into the bundled output. Adding one
-  // here too produced a duplicate shebang line, which Node's parser rejects.
+  // Confirmed live: without this, adding jimp crashed the bundled agent.mjs
+  // instantly on load with "Dynamic require of 'fs' is not supported" — a
+  // well-known esbuild limitation (not specific to jimp/gifwrap) where a
+  // bundled CJS dependency's own `require("fs")` call can't be statically
+  // inlined into ESM output, and esbuild's fallback shim just throws unless
+  // a real `require` is already in scope. createRequire supplies that real
+  // one. Doesn't include a shebang line itself, so this doesn't reintroduce
+  // the duplicate-shebang problem a banner once caused here before.
+  banner: {
+    js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);",
+  },
 });
 
 console.log("Agent bundled to dist-bundle/agent.mjs");

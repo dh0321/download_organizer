@@ -6,7 +6,8 @@
   "scripts": {
     "test": "vitest run",
     "dev": "vite",
-    "build": "vite build && node build-background.mjs"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc --noEmit -p tsconfig.json && vite build && node build-background.mjs"
   },
   "dependencies": {
     "@download-organizer/shared": "*",

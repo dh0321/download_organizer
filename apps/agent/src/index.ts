@@ -83,8 +83,21 @@ async function main(): Promise<void> {
       req,
     ).then(
       (response) => {
-        writeMessage(process.stdout, response);
-        void logger.log(`response: ${response.type}${"ok" in response ? ` ok=${response.ok}` : ""}`);
+        try {
+          writeMessage(process.stdout, response);
+          void logger.log(`response: ${response.type}${"ok" in response ? ` ok=${response.ok}` : ""}`);
+        } catch (err) {
+          // writeMessage throws synchronously if a response exceeds Native
+          // Messaging's 1 MiB host-to-extension cap (see stdio.ts) —
+          // confirmed live: an oversized read-thumbnail-result crashed the
+          // whole Agent process outright, since a throw here becomes an
+          // unhandled rejection on this .then() call, which modern Node
+          // treats as fatal. That silently broke every other in-flight or
+          // future request in the same session, not just this one — logging
+          // and letting the caller's own request-level timeout fire instead
+          // is far safer than that.
+          void logger.log(`Failed to send response for ${response.type}: ${String(err)}`);
+        }
       },
       (err) => {
         void logger.log(`UNHANDLED dispatch error: ${String(err)}`);
