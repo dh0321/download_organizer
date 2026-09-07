@@ -1150,13 +1150,29 @@ export function App() {
                         <p className="aias-card-title" style={{ margin: 0 }}>
                           Filename
                         </p>
-                        <Segmented
-                          value={asset.naming.customFilenameEnabled}
-                          disabled={disabled}
-                          // Deliberately no auto-fill here (unlike Folder's toggle) — switching to
-                          // Custom starts from a genuinely blank input, not a pre-written default.
-                          onChange={(v) => patchNaming(asset.id, { customFilenameEnabled: v })}
-                        />
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <button
+                            type="button"
+                            className="aias-btn aias-btn-ghost aias-btn-sm"
+                            disabled={disabled}
+                            title="Ignores every naming field below and uses the file's original name as-is — Folder placement is unaffected."
+                            onClick={() => {
+                              const base = asset.originalFilename.toLowerCase().endsWith(asset.extension.toLowerCase())
+                                ? asset.originalFilename.slice(0, -asset.extension.length)
+                                : asset.originalFilename;
+                              patchNaming(asset.id, { customFilenameEnabled: true, customFilename: base });
+                            }}
+                          >
+                            Keep Original Filename
+                          </button>
+                          <Segmented
+                            value={asset.naming.customFilenameEnabled}
+                            disabled={disabled}
+                            // Deliberately no auto-fill here (unlike Folder's toggle) — switching to
+                            // Custom starts from a genuinely blank input, not a pre-written default.
+                            onChange={(v) => patchNaming(asset.id, { customFilenameEnabled: v })}
+                          />
+                        </div>
                       </div>
                       {!asset.naming.customFilenameEnabled && (
                         <div className="aias-chip-row" style={{ marginTop: 6 }}>
