@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { JobManager, LOG_RETENTION_MS } from "../src/background/jobManager.js";
+import { JobManager, LOG_RETENTION_MS, pendingAssetIndexKey } from "../src/background/jobManager.js";
 import type { NamingFields, OrganizeLogEntry, PendingAsset } from "@download-organizer/shared";
 
 function naming(overrides: Partial<NamingFields> = {}): NamingFields {
@@ -22,17 +22,12 @@ function naming(overrides: Partial<NamingFields> = {}): NamingFields {
 function makeDeps() {
   let nextId = 0;
   const persistedAssets: Record<string, PendingAsset>[] = [];
-  const persistedCounters: Record<string, number>[] = [];
   const persistedLogs: OrganizeLogEntry[][] = [];
   return {
     deps: {
       loadPendingAssets: vi.fn(async () => ({})),
       persistPendingAssets: vi.fn((assets: Record<string, PendingAsset>) => {
         persistedAssets.push(assets);
-      }),
-      loadPersistedIndexCounters: vi.fn(async () => ({})),
-      persistIndexCounters: vi.fn((snapshot: Record<string, number>) => {
-        persistedCounters.push(snapshot);
       }),
       loadOrganizeLog: vi.fn(async () => [] as OrganizeLogEntry[]),
       persistOrganizeLog: vi.fn((entries: OrganizeLogEntry[]) => {
@@ -41,7 +36,6 @@ function makeDeps() {
       generateJobId: vi.fn(() => `job-${nextId++}`),
     },
     persistedAssets,
-    persistedCounters,
     persistedLogs,
   };
 }
@@ -59,6 +53,37 @@ function register(manager: JobManager, overrides: Partial<Parameters<JobManager[
     ...overrides,
   });
 }
+
+describe("pendingAssetIndexKey", () => {
+  it("gives the same key to two different Shot/Asset Name values in the same destination folder", () => {
+    // Shot/Asset Name is a filename identifier, not a folder level (see
+    // DEFAULT_FOLDER_TEMPLATE) — this key only identifies "which destination
+    // folder", so it must not vary with shot.
+    const keyA = pendingAssetIndexKey({ mediaType: "image", naming: naming({ shot: "SH010" }) });
+    const keyB = pendingAssetIndexKey({ mediaType: "image", naming: naming({ shot: "SH020" }) });
+    expect(keyA).toBe(keyB);
+  });
+
+  it("gives a different key to a different destination folder", () => {
+    const keyA = pendingAssetIndexKey({ mediaType: "image", naming: naming() });
+    const keyB = pendingAssetIndexKey({ mediaType: "image", naming: naming({ sequence: "SQ020" }) });
+    expect(keyA).not.toBe(keyB);
+  });
+
+  it("keys off the custom directory, not project/sequence/bucket, when Custom Directory is enabled", () => {
+    const structured = pendingAssetIndexKey({ mediaType: "image", naming: naming() });
+    const custom1 = pendingAssetIndexKey({
+      mediaType: "image",
+      naming: naming({ customDirectoryEnabled: true, customDirectory: "ClientA\\ReviewBatch2" }),
+    });
+    const custom2 = pendingAssetIndexKey({
+      mediaType: "image",
+      naming: naming({ customDirectoryEnabled: true, customDirectory: "ClientB\\ReviewBatch2" }),
+    });
+    expect(custom1).not.toBe(structured);
+    expect(custom1).not.toBe(custom2);
+  });
+});
 
 describe("JobManager (Pending Asset store)", () => {
   it("registers a completed download as a pending, selected-by-default asset with no index reserved yet", async () => {
@@ -93,8 +118,6 @@ describe("JobManager (Pending Asset store)", () => {
     const manager2 = await JobManager.create({
       loadPendingAssets: vi.fn(async () => lastPersisted ?? {}),
       persistPendingAssets: vi.fn(),
-      loadPersistedIndexCounters: vi.fn(async () => ({})),
-      persistIndexCounters: vi.fn(),
       loadOrganizeLog: vi.fn(async () => []),
       persistOrganizeLog: vi.fn(),
       generateJobId: vi.fn(() => "job-restart"),
@@ -166,82 +189,6 @@ describe("JobManager (Pending Asset store)", () => {
     expect(organizable).toContain(pendingAsset.id);
     expect(organizable).not.toContain(organizingAsset.id);
     expect(organizable).not.toContain(organizedAsset.id);
-  });
-
-  it("assigns unique, sequential Organize-time indices for 5 assets Organized together (§F-1)", async () => {
-    const { deps } = makeDeps();
-    const manager = await JobManager.create(deps);
-    const assets = [1, 2, 3, 4, 5].map((n) => register(manager, { browserDownloadId: n }));
-
-    // Synchronous loop, no `await` in between — mirrors the real Organize handler.
-    const indices = assets.map((a) => manager.reserveIndexForOrganize(a));
-
-    expect(indices).toEqual([1, 2, 3, 4, 5]);
-  });
-
-  it("tracks independent Organize-time counters per project/sequence/bucket/mediaType key — shot/name does NOT affect the key, since it's a filename identifier, not a folder level", async () => {
-    const { deps } = makeDeps();
-    const manager = await JobManager.create(deps);
-    const assetShotA = register(manager, { browserDownloadId: 1, naming: naming({ shot: "SH010" }) });
-    const assetShotB = register(manager, { browserDownloadId: 2, naming: naming({ shot: "SH020" }) });
-
-    // Same project/sequence/bucket -> same destination folder -> shared counter,
-    // even though shot differs (matches the Agent's own get-max-index, which
-    // scans the destination folder without regard for shot either).
-    expect(manager.reserveIndexForOrganize(assetShotA)).toBe(1);
-    expect(manager.reserveIndexForOrganize(assetShotB)).toBe(2);
-
-    const assetOtherSequence = register(manager, { browserDownloadId: 3, naming: naming({ sequence: "SQ020" }) });
-    expect(manager.reserveIndexForOrganize(assetOtherSequence)).toBe(1); // different sequence -> different folder -> independent counter
-  });
-
-  it("keys the Organize-time counter off the custom directory, not project/sequence/bucket, when enabled", async () => {
-    const { deps } = makeDeps();
-    const manager = await JobManager.create(deps);
-    const structuredAsset = register(manager, { browserDownloadId: 1 });
-    const customDirAsset1 = register(manager, {
-      browserDownloadId: 2,
-      naming: naming({ customDirectoryEnabled: true, customDirectory: "ClientA\\ReviewBatch2" }),
-    });
-    const customDirAsset2 = register(manager, {
-      browserDownloadId: 3,
-      naming: naming({ customDirectoryEnabled: true, customDirectory: "ClientA\\ReviewBatch2" }),
-    });
-
-    expect(manager.reserveIndexForOrganize(structuredAsset)).toBe(1);
-    expect(manager.reserveIndexForOrganize(customDirAsset1)).toBe(1);
-    expect(manager.reserveIndexForOrganize(customDirAsset2)).toBe(2);
-  });
-
-  it("reconciles the Organize-time counter against the Agent's real on-disk max before reserving", async () => {
-    const { deps } = makeDeps();
-    const manager = await JobManager.create(deps);
-    const asset = register(manager);
-
-    manager.reconcileIndexFloor("galaxy_s27|sq010|generated|image", 22);
-
-    expect(manager.reserveIndexForOrganize(asset)).toBe(23); // continues from the disk-reported max, not 1
-  });
-
-  it("restores Organize-time index counters from a persisted checkpoint after a simulated restart", async () => {
-    const { deps: firstRunDeps } = makeDeps();
-    const manager1 = await JobManager.create(firstRunDeps);
-    const firstAsset = register(manager1);
-    manager1.reserveIndexForOrganize(firstAsset);
-
-    const lastPersistedCounters = firstRunDeps.persistIndexCounters.mock.calls.at(-1)?.[0];
-    const manager2 = await JobManager.create({
-      loadPendingAssets: vi.fn(async () => ({})),
-      persistPendingAssets: vi.fn(),
-      loadPersistedIndexCounters: vi.fn(async () => lastPersistedCounters ?? {}),
-      persistIndexCounters: vi.fn(),
-      loadOrganizeLog: vi.fn(async () => []),
-      persistOrganizeLog: vi.fn(),
-      generateJobId: vi.fn(() => "job-restart"),
-    });
-    const secondAsset = register(manager2);
-
-    expect(manager2.reserveIndexForOrganize(secondAsset)).toBe(2); // continues from 1, not reset
   });
 
   it("markOrganized sets status to 'organized' and records the real destination path", async () => {

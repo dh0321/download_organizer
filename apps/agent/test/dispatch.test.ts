@@ -194,12 +194,12 @@ describe("dispatch", () => {
     expect(progressCalls.map((c) => c.completed).sort()).toEqual([1, 2]);
   });
 
-  it("reports get-max-index as 0 for a never-used destination", async () => {
+  it("reports list-destination-files as empty for a never-used destination", async () => {
     const res = await dispatch(
       { configStore, jobQueue },
-      { type: "get-max-index", naming: { project: "P", sequence: "", shot: "SH010", bucketId: "generated" } },
+      { type: "list-destination-files", naming: { project: "P", sequence: "", shot: "SH010", bucketId: "generated" } },
     );
-    expect(res).toEqual({ type: "get-max-index-result", maxIndex: 0 });
+    expect(res).toEqual({ type: "list-destination-files-result", files: [] });
   });
 
   it("returns the picked path on pick-directory", async () => {

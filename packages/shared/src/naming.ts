@@ -81,3 +81,39 @@ export function buildFilename(template: string, tokens: BuildFilenameTokens, ext
 
   return `${values.join("_")}${extension}`;
 }
+
+// Astronomically higher than any real destination folder's file count — just
+// a defensive backstop against a pathological/corrupted folder listing.
+const MAX_INDEX_SEARCH_ATTEMPTS = 999;
+
+/**
+ * §F-1 Index Reservation: picks the first {index} value (starting at 1)
+ * whose fully-computed filename doesn't already appear in `takenFilenames`,
+ * and marks that filename as taken (mutates the set) so a second call in the
+ * same pass — e.g. another asset in the same Organize batch — doesn't also
+ * claim it. Returns 1 unused, without touching `takenFilenames`, when the
+ * template has no {index} slot or the asset uses a Custom Filename
+ * (buildFilename ignores the index token in both cases either way).
+ *
+ * Used both by the real Organize-time reservation (organizeFlow.ts, against
+ * the destination's actual on-disk listing) and by the Inbox's live preview
+ * (App.tsx, against a listing fetched on demand) — the same algorithm, just
+ * fed a different (real vs. just-in-time) file listing.
+ */
+export function pickAvailableIndex(
+  template: string,
+  tokens: Omit<BuildFilenameTokens, "index" | "customFilenameEnabled" | "customFilename">,
+  extension: string,
+  takenFilenames: Set<string>,
+): number {
+  if (!template.includes("{index}")) return 1;
+
+  for (let n = 1; n <= MAX_INDEX_SEARCH_ATTEMPTS; n++) {
+    const candidate = buildFilename(template, { ...tokens, index: n, customFilenameEnabled: false, customFilename: "" }, extension);
+    if (!takenFilenames.has(candidate)) {
+      takenFilenames.add(candidate);
+      return n;
+    }
+  }
+  throw new Error(`Could not find a free {index} value after ${MAX_INDEX_SEARCH_ATTEMPTS} attempts`);
+}

@@ -1,12 +1,13 @@
 // §6/§11 Pending Asset store. A download that completes while AI Session is on
 // is registered here as a PendingAsset — nothing is written to disk yet. Index
-// Reservation (§F-1) no longer happens at registration time; it happens once,
-// synchronously, right before an Organize batch is sent to the Agent (see
-// reserveIndexForOrganize) — the same race-free "no `await` mid-loop" technique
-// as before, just invoked from a different trigger point.
+// Reservation (§F-1) happens once, synchronously, right before an Organize
+// batch is sent to the Agent (see organizeFlow.ts) — no persisted counter is
+// kept here any more (see that file's header for why): confirmed live that a
+// counter surviving across sessions/manual deletions in the destination
+// folder produced a filename number the folder's real contents didn't
+// support (e.g. "v002" in an empty folder).
 
 import {
-  IndexReservationCounter,
   buildIndexKey,
   buildIndexKeyForCustomDirectory,
   type PendingAsset,
@@ -20,11 +21,8 @@ export interface JobManagerDeps {
   loadPendingAssets(): Promise<Record<string, PendingAsset>>;
   /** Fire-and-forget — every mutating method calls this after updating memory. */
   persistPendingAssets(assets: Record<string, PendingAsset>): void;
-  loadPersistedIndexCounters(): Promise<Record<string, number>>;
-  /** Fire-and-forget — never awaited from inside reserveIndexForOrganize (§F-1). */
-  persistIndexCounters(snapshot: Record<string, number>): void;
   loadOrganizeLog(): Promise<OrganizeLogEntry[]>;
-  /** Fire-and-forget, same as persistPendingAssets/persistIndexCounters. */
+  /** Fire-and-forget, same as persistPendingAssets. */
   persistOrganizeLog(entries: OrganizeLogEntry[]): void;
   generateJobId(): string;
 }
@@ -51,8 +49,9 @@ const ORGANIZABLE_STATUSES: PendingAssetStatus[] = ["pending", "failed"];
 /** Same key formula Index Reservation has always used (§F-1) — Custom Directory
  * assets key off the directory string instead of project/sequence/shot/bucket
  * (see fileRouter.ts's computeCandidatePath for why). Exported so callers
- * outside JobManager (the Organize flow's get-max-index step) can compute the
- * same key without duplicating the branch. */
+ * outside JobManager (organizeFlow.ts's list-destination-files step) can
+ * compute the same key without duplicating the branch — it's purely a
+ * "which destination folder" grouping key, unrelated to any stored counter. */
 export function pendingAssetIndexKey(asset: Pick<PendingAsset, "mediaType" | "naming">): string {
   return asset.naming.customDirectoryEnabled
     ? buildIndexKeyForCustomDirectory(asset.naming.customDirectory ?? "", asset.mediaType)
@@ -65,28 +64,21 @@ export function pendingAssetIndexKey(asset: Pick<PendingAsset, "mediaType" | "na
 }
 
 export class JobManager {
-  private readonly counter: IndexReservationCounter;
   private readonly assets = new Map<string, PendingAsset>();
   private log: OrganizeLogEntry[];
 
   private constructor(
     private readonly deps: JobManagerDeps,
     initialAssets: Record<string, PendingAsset>,
-    initialCounters: Record<string, number>,
     initialLog: OrganizeLogEntry[],
   ) {
-    this.counter = new IndexReservationCounter(initialCounters);
     for (const [id, asset] of Object.entries(initialAssets)) this.assets.set(id, asset);
     this.log = initialLog;
   }
 
   static async create(deps: JobManagerDeps): Promise<JobManager> {
-    const [assets, counters, log] = await Promise.all([
-      deps.loadPendingAssets(),
-      deps.loadPersistedIndexCounters(),
-      deps.loadOrganizeLog(),
-    ]);
-    return new JobManager(deps, assets, counters, log);
+    const [assets, log] = await Promise.all([deps.loadPendingAssets(), deps.loadOrganizeLog()]);
+    return new JobManager(deps, assets, log);
   }
 
   private persist(): void {
@@ -284,23 +276,4 @@ export class JobManager {
       .sort((a, b) => b.loggedAt - a.loggedAt);
   }
 
-  /** Organize flow step: fold the Agent's real on-disk max index (from
-   * get-max-index) into the in-memory counter as a lower bound, before any
-   * reservation happens for that key. */
-  reconcileIndexFloor(key: string, agentReportedMax: number): void {
-    this.counter.reconcile(key, agentReportedMax);
-  }
-
-  /**
-   * §11 Organize Flow step 2: must be called synchronously (no `await` between
-   * calls) once per selected asset, after every distinct key's floor has
-   * already been reconciled via reconcileIndexFloor — this preserves the exact
-   * race-freedom technique index reservation has always used (§F-1), just
-   * triggered by the Organize click instead of by download detection.
-   */
-  reserveIndexForOrganize(asset: PendingAsset): number {
-    const index = this.counter.reserveNext(pendingAssetIndexKey(asset));
-    this.deps.persistIndexCounters(this.counter.snapshot());
-    return index;
-  }
 }

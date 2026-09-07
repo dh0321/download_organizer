@@ -49,7 +49,7 @@ describe("NativeClient", () => {
     [{ type: "ping" }, { type: "pong" }],
     [{ type: "get-settings" }, { type: "get-settings-result", settings: {} as any }],
     [{ type: "sync-settings", settings: {} as any }, { type: "sync-settings-result", ok: true }],
-    [{ type: "get-max-index", naming: {} as any }, { type: "get-max-index-result", maxIndex: 0 }],
+    [{ type: "list-destination-files", naming: {} as any }, { type: "list-destination-files-result", files: [] }],
     [{ type: "organize-batch", items: [] }, { type: "organize-batch-result", results: [] }],
     [{ type: "pick-directory" }, { type: "pick-directory-result", ok: true, path: null }],
     [{ type: "list-downloads-folder" }, { type: "list-downloads-folder-result", ok: true, files: [] }],

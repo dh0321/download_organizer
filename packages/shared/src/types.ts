@@ -230,10 +230,11 @@ export type NativeRequest =
       items: OrganizeBatchItem[];
     }
   | {
-      // No caller-supplied regex/pattern (§F-2): the Agent derives its own scan
-      // pattern from these logical fields so a compromised Extension can never hand
-      // the Agent an attacker-controlled regex (ReDoS surface).
-      type: "get-max-index";
+      // §F-1 Index Reservation: returns the destination folder's real current
+      // file listing so the caller can pick the first {index} value whose
+      // computed filename isn't already taken (see organizeFlow.ts) — no
+      // caller-supplied regex/pattern (§F-2), just a plain directory listing.
+      type: "list-destination-files";
       naming: Pick<
         NamingFields,
         "project" | "sequence" | "shot" | "bucketId" | "customFolderName" | "customDirectoryEnabled" | "customDirectory"
@@ -286,7 +287,7 @@ export type NativeResponse =
   | { type: "route-file-result"; jobId: string; ok: true; finalPath: string }
   | { type: "route-file-result"; jobId: string; ok: false; error: string; code: NativeErrorCode }
   | { type: "organize-batch-result"; results: OrganizeBatchItemResult[] }
-  | { type: "get-max-index-result"; maxIndex: number }
+  | { type: "list-destination-files-result"; files: string[] }
   | { type: "sync-settings-result"; ok: boolean }
   | { type: "get-settings-result"; settings: Omit<AgentConfig, "allowedExtensionId"> }
   | { type: "pong" }

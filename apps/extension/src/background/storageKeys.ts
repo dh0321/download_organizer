@@ -4,7 +4,6 @@
 // comment there).
 
 export const SESSION_STORAGE_KEY = "downloadOrganizer.sessionState";
-export const INDEX_COUNTERS_STORAGE_KEY = "downloadOrganizer.indexCounters";
 export const PENDING_ASSETS_STORAGE_KEY = "downloadOrganizer.pendingAssets";
 /** Short-lived record of "where did this organized file go", written once an
  * asset is cleared out of PENDING_ASSETS_STORAGE_KEY (see

@@ -1,11 +1,11 @@
 // §11 Organize Flow orchestrator — the one place that turns selected Pending
 // Assets into a single organize-batch Native Messaging request. Kept separate
 // from background/index.ts's message-passing wiring so the two-phase
-// "await every distinct destination's get-max-index round trip, THEN reserve
-// indices synchronously with no `await` in between" sequencing (§F-1) is
-// unit-testable without a real chrome.runtime/native host.
+// "await every distinct destination's list-destination-files round trip,
+// THEN reserve indices synchronously with no `await` in between" sequencing
+// (§F-1) is unit-testable without a real chrome.runtime/native host.
 
-import type { NativeRequest, NativeResponse, OrganizeBatchItem, OrganizeBatchItemResult, PendingAsset } from "@download-organizer/shared";
+import { pickAvailableIndex, type NativeRequest, type NativeResponse, type OrganizeBatchItem, type OrganizeBatchItemResult, type PendingAsset } from "@download-organizer/shared";
 import { JobManager, pendingAssetIndexKey } from "./jobManager.js";
 
 export interface OrganizeFlowDeps {
@@ -17,6 +17,20 @@ export interface OrganizeFlowResult {
   ok: boolean;
   results?: OrganizeBatchItemResult[];
   error?: string;
+}
+
+/** Thin adapter from a PendingAsset to shared naming.ts's pickAvailableIndex
+ * — also used, independently, by the Inbox's live preview (App.tsx) against
+ * a listing fetched on demand instead of this batch's real one. */
+function reserveIndexForAsset(asset: PendingAsset, takenFilenames: Set<string>): number {
+  const { naming, extension, source } = asset;
+  if (naming.customFilenameEnabled) return 1;
+  return pickAvailableIndex(
+    naming.namingTemplate,
+    { project: naming.project, sequence: naming.sequence, shot: naming.shot, description: naming.description, type: "", source },
+    extension,
+    takenFilenames,
+  );
 }
 
 /** organize-batch moves real files (large videos especially, on possibly slow
@@ -39,22 +53,24 @@ export async function runOrganizeFlow(deps: OrganizeFlowDeps, assetIds: string[]
 
   if (assets.length === 0) return { ok: true, results: [] };
 
-  // Step 1 (§11): ask the Agent for every distinct destination's real on-disk
-  // max index BEFORE reserving anything — the only point `await` is allowed,
-  // since no index has been handed out yet and nothing is marked "organizing".
-  // This doubles as the up-front Agent-connectivity check (§12): if the Agent
-  // is unreachable, it fails here, before touching any asset's status.
+  // Step 1 (§11): ask the Agent for every distinct destination's real current
+  // file listing BEFORE reserving anything — the only point `await` is
+  // allowed, since no index has been handed out yet and nothing is marked
+  // "organizing". This doubles as the up-front Agent-connectivity check
+  // (§12): if the Agent is unreachable, it fails here, before touching any
+  // asset's status.
   const representativeByKey = new Map<string, PendingAsset>();
   for (const asset of assets) {
     const key = pendingAssetIndexKey(asset);
     if (!representativeByKey.has(key)) representativeByKey.set(key, asset);
   }
 
+  const takenFilenamesByKey = new Map<string, Set<string>>();
   try {
     await Promise.all(
       Array.from(representativeByKey.entries()).map(async ([key, representative]) => {
         const res = await deps.sendToAgent({
-          type: "get-max-index",
+          type: "list-destination-files",
           naming: {
             project: representative.naming.project,
             sequence: representative.naming.sequence,
@@ -65,8 +81,8 @@ export async function runOrganizeFlow(deps: OrganizeFlowDeps, assetIds: string[]
             customDirectory: representative.naming.customDirectory,
           },
         });
-        if (res.type === "get-max-index-result") {
-          jobManager.reconcileIndexFloor(key, res.maxIndex);
+        if (res.type === "list-destination-files-result") {
+          takenFilenamesByKey.set(key, new Set(res.files));
         }
       }),
     );
@@ -76,19 +92,23 @@ export async function runOrganizeFlow(deps: OrganizeFlowDeps, assetIds: string[]
 
   // Step 2 (§11): reserve indices synchronously, no `await` between calls —
   // the same race-free technique index reservation has always used (§F-1),
-  // just triggered by this Organize click instead of by download detection.
+  // just resolved against each destination's real (just-fetched) file
+  // listing instead of a counter carried over from earlier sessions.
   for (const asset of assets) {
     jobManager.setStatus(asset.id, "organizing");
   }
-  const items: OrganizeBatchItem[] = assets.map((asset) => ({
-    jobId: asset.id,
-    sourcePath: asset.sourcePath,
-    extension: asset.extension,
-    mediaType: asset.mediaType,
-    source: asset.source,
-    reservedIndex: jobManager.reserveIndexForOrganize(asset),
-    naming: asset.naming,
-  }));
+  const items: OrganizeBatchItem[] = assets.map((asset) => {
+    const takenFilenames = takenFilenamesByKey.get(pendingAssetIndexKey(asset)) ?? new Set<string>();
+    return {
+      jobId: asset.id,
+      sourcePath: asset.sourcePath,
+      extension: asset.extension,
+      mediaType: asset.mediaType,
+      source: asset.source,
+      reservedIndex: reserveIndexForAsset(asset, takenFilenames),
+      naming: asset.naming,
+    };
+  });
 
   // Step 3: one Native Messaging round trip for the whole batch (§F-1 Failure
   // Isolation is enforced Agent-side — see dispatch.ts's "organize-batch" case).

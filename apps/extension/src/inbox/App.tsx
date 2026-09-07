@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   buildFilename,
+  pickAvailableIndex,
   splitCustomDirectorySegments,
   type AssetBucket,
   type MediaType,
@@ -16,15 +17,9 @@ import {
 import { loadSessionState, saveSessionState, DEFAULT_SESSION_STATE } from "../background/sessionManager.js";
 import { loadPendingAssets } from "../background/pendingAssetsStorage.js";
 import { loadOrganizeLog } from "../background/organizeLogStorage.js";
-import { pendingAssetIndexKey } from "../background/jobManager.js";
 import type { RescanCandidate } from "../background/rescanDownloads.js";
 import { adapters } from "../adapters/registry.js";
-import {
-  PENDING_ASSETS_STORAGE_KEY,
-  SESSION_STORAGE_KEY,
-  INDEX_COUNTERS_STORAGE_KEY,
-  ORGANIZE_LOG_STORAGE_KEY,
-} from "../background/storageKeys.js";
+import { PENDING_ASSETS_STORAGE_KEY, SESSION_STORAGE_KEY, ORGANIZE_LOG_STORAGE_KEY } from "../background/storageKeys.js";
 import { AgentBadge, type AgentStatus } from "../components/AgentBadge.js";
 import { Combobox } from "../components/Combobox.js";
 import { Field } from "../components/Field.js";
@@ -165,9 +160,9 @@ function stripTrailingSeparator(s: string): string {
 function computePreview(
   asset: PendingAsset,
   defaultRoot: string,
-  indexCounters: Record<string, number>,
   buckets: AssetBucket[],
   pathSep: "\\" | "/",
+  previewedIndex: number | null,
 ): { folderRelativePreview: string; folderFullPreview: string; filenameBasePreview: string; fullPathPreview: string } {
   const bucketLabel = buckets.find((b) => b.id === asset.naming.bucketId)?.label ?? asset.naming.bucketId ?? "";
 
@@ -200,7 +195,14 @@ function computePreview(
     ? "(set a Default Root)"
     : (folderMessage ?? [stripTrailingSeparator(defaultRoot), ...folderSegments].join(pathSep));
 
-  const previewIndex = (indexCounters[pendingAssetIndexKey(asset)] ?? 0) + 1;
+  // The real {index} value is only guaranteed accurate at Organize time
+  // (organizeFlow.ts always re-checks the destination's real contents then,
+  // regardless) — previewedIndex is a live, on-demand lookup for this
+  // asset only (see the effect that fetches it), refreshed whenever the
+  // Index chip is turned on or something that affects the computed
+  // filename/destination changes. Falls back to a plain "v001" placeholder
+  // shape (not a prediction) while that lookup hasn't resolved yet.
+  const previewIndex = previewedIndex ?? 1;
 
   let filenameFullPreview: string;
   if (asset.naming.customFilenameEnabled && !asset.naming.customFilename.trim()) {
@@ -475,7 +477,6 @@ function RescanImportModal({
 export function App() {
   const [session, setSession] = useState<SessionState>(DEFAULT_SESSION_STATE);
   const [assets, setAssets] = useState<PendingAsset[]>([]);
-  const [indexCounters, setIndexCounters] = useState<Record<string, number>>({});
   const [defaultRoot, setDefaultRoot] = useState("");
   const [agentStatus, setAgentStatus] = useState<AgentStatus>("checking");
   const [editingRoot, setEditingRoot] = useState(false);
@@ -512,9 +513,6 @@ export function App() {
     loadSessionState().then(setSession);
     loadPendingAssets().then((map) => setAssets(sortByDownloadedAtDesc(Object.values(map))));
     loadOrganizeLog().then(setOrganizeLog);
-    chrome.storage.local.get(INDEX_COUNTERS_STORAGE_KEY).then((result) => {
-      setIndexCounters((result[INDEX_COUNTERS_STORAGE_KEY] as Record<string, number>) ?? {});
-    });
     chrome.runtime.sendMessage({ type: "aias-get-display-settings" }, (res) => {
       if (res?.ok) setDefaultRoot(res.settings.defaultRoot ?? "");
     });
@@ -535,9 +533,6 @@ export function App() {
       }
       if (changes[SESSION_STORAGE_KEY]) {
         setSession({ ...DEFAULT_SESSION_STATE, ...changes[SESSION_STORAGE_KEY].newValue });
-      }
-      if (changes[INDEX_COUNTERS_STORAGE_KEY]) {
-        setIndexCounters(changes[INDEX_COUNTERS_STORAGE_KEY].newValue ?? {});
       }
       if (changes[ORGANIZE_LOG_STORAGE_KEY]) {
         setOrganizeLog(changes[ORGANIZE_LOG_STORAGE_KEY].newValue ?? []);
@@ -601,6 +596,72 @@ export function App() {
   }, [assets, focusedAssetId]);
 
   const focusedAsset = assets.find((a) => a.id === focusedAssetId) ?? null;
+
+  // Live {index} preview for the focused asset — the real value is only ever
+  // authoritative at Organize time (organizeFlow.ts re-checks the real
+  // destination listing then regardless), but re-fetching it here whenever
+  // the Index chip is turned on, or whenever something that changes the
+  // computed filename/destination changes (folder picked via Custom
+  // Browse, shot/description/source edited, etc.) keeps what's shown before
+  // that point from being a total guess. null means "not applicable" (no
+  // {index} in the template, or Custom Filename is on) — computePreview
+  // falls back to showing 1 in that case.
+  const [previewedIndex, setPreviewedIndex] = useState<number | null>(null);
+  useEffect(() => {
+    if (!focusedAsset) {
+      setPreviewedIndex(null);
+      return;
+    }
+    const { naming } = focusedAsset;
+    if (naming.customFilenameEnabled || !naming.namingTemplate.includes("{index}")) {
+      setPreviewedIndex(null);
+      return;
+    }
+    let cancelled = false;
+    chrome.runtime.sendMessage(
+      {
+        type: "aias-list-destination-files",
+        naming: {
+          project: naming.project,
+          sequence: naming.sequence,
+          shot: naming.shot,
+          bucketId: naming.bucketId,
+          customFolderName: naming.customFolderName,
+          customDirectoryEnabled: naming.customDirectoryEnabled,
+          customDirectory: naming.customDirectory,
+        },
+      },
+      (res) => {
+        if (cancelled) return;
+        const taken = new Set<string>(res?.files ?? []);
+        setPreviewedIndex(
+          pickAvailableIndex(
+            naming.namingTemplate,
+            { project: naming.project, sequence: naming.sequence, shot: naming.shot, description: naming.description, type: "", source: focusedAsset.source },
+            focusedAsset.extension,
+            taken,
+          ),
+        );
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    focusedAsset?.id,
+    focusedAsset?.extension,
+    focusedAsset?.source,
+    focusedAsset?.naming.customFilenameEnabled,
+    focusedAsset?.naming.namingTemplate,
+    focusedAsset?.naming.project,
+    focusedAsset?.naming.sequence,
+    focusedAsset?.naming.shot,
+    focusedAsset?.naming.description,
+    focusedAsset?.naming.bucketId,
+    focusedAsset?.naming.customFolderName,
+    focusedAsset?.naming.customDirectoryEnabled,
+    focusedAsset?.naming.customDirectory,
+  ]);
 
   function toggleSession(enabled: boolean) {
     setSession((prev) => {
@@ -998,7 +1059,7 @@ export function App() {
               {!focusedAsset && <p className="aias-inbox-empty-detail">Select a file on the left to edit it.</p>}
               {focusedAsset && (() => {
                 const asset = focusedAsset;
-                const preview = computePreview(asset, defaultRoot, indexCounters, buckets, pathSep);
+                const preview = computePreview(asset, defaultRoot, buckets, pathSep, previewedIndex);
                 const disabled = !ORGANIZABLE.has(asset.status);
                 return (
                   <>

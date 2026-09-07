@@ -8,7 +8,7 @@ import type { NativeRequest, NativeResponse, OrganizeBatchItemResult } from "@do
 import type { AgentConfigStore } from "./agentConfig.js";
 import type { JobWorkerPool } from "./jobQueue.js";
 import { handleRouteFile } from "./routeFile.js";
-import { getMaxIndex } from "./getMaxIndex.js";
+import { listDestinationFiles } from "./listDestinationFiles.js";
 import { pickDirectory } from "./directoryPicker.js";
 import { listDownloadsFolder } from "./listDownloadsFolder.js";
 import { openPath } from "./openPath.js";
@@ -43,9 +43,9 @@ export async function dispatch(deps: DispatchDeps, req: NativeRequest): Promise<
       return { type: "sync-settings-result", ok: true };
     }
 
-    case "get-max-index": {
-      const maxIndex = await getMaxIndex(deps.configStore.get(), req.naming);
-      return { type: "get-max-index-result", maxIndex };
+    case "list-destination-files": {
+      const files = await listDestinationFiles(deps.configStore.get(), req.naming);
+      return { type: "list-destination-files-result", files };
     }
 
     case "route-file": {

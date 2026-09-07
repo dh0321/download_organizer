@@ -26,8 +26,6 @@ async function makeJobManager() {
     persistPendingAssets: vi.fn((assets: Record<string, PendingAsset>) => {
       persistedAssets.push(assets);
     }),
-    loadPersistedIndexCounters: vi.fn(async () => ({})),
-    persistIndexCounters: vi.fn(() => {}),
     loadOrganizeLog: vi.fn(async () => []),
     persistOrganizeLog: vi.fn(() => {}),
     generateJobId: (() => {

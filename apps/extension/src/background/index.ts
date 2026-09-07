@@ -22,7 +22,7 @@ import { runOrganizeFlow } from "./organizeFlow.js";
 import { notifyOrganizeResult, notifyError } from "./notifier.js";
 import { loadPendingAssets, persistPendingAssets } from "./pendingAssetsStorage.js";
 import { loadOrganizeLog, persistOrganizeLog } from "./organizeLogStorage.js";
-import { SESSION_STORAGE_KEY, INDEX_COUNTERS_STORAGE_KEY } from "./storageKeys.js";
+import { SESSION_STORAGE_KEY } from "./storageKeys.js";
 
 const intentPingStore = new IntentPingStore();
 const nativeClient = new NativeClient();
@@ -46,23 +46,11 @@ void loadSessionState().then((s) => {
   sessionSnapshotCache = s;
 });
 
-async function loadPersistedIndexCounters(): Promise<Record<string, number>> {
-  const result = await chrome.storage.local.get(INDEX_COUNTERS_STORAGE_KEY);
-  return (result[INDEX_COUNTERS_STORAGE_KEY] as Record<string, number> | undefined) ?? {};
-}
-
-function persistIndexCounters(snapshot: Record<string, number>): void {
-  // Fire-and-forget on purpose — never awaited from inside reserveIndexForOrganize (§F-1).
-  void chrome.storage.local.set({ [INDEX_COUNTERS_STORAGE_KEY]: snapshot });
-}
-
 // Created synchronously (not awaited here) — see downloadListener.ts for how
 // listeners registered before this resolves still handle events correctly.
 const jobManagerPromise: Promise<JobManager> = JobManager.create({
   loadPendingAssets,
   persistPendingAssets,
-  loadPersistedIndexCounters,
-  persistIndexCounters,
   loadOrganizeLog,
   persistOrganizeLog,
   generateJobId: () => crypto.randomUUID(),
@@ -87,7 +75,7 @@ function buildDefaultNaming(): NamingFields {
     bucketId: sessionSnapshotCache.batchDefaultBucketId,
     description: "",
     namingPresetId: "default",
-    namingTemplate: "{shot}_{description}_{source}_{index}", // Phase 1: single built-in preset (§O)
+    namingTemplate: "{shot}_{description}_{source}", // Phase 1: single built-in preset (§O)
     customFilenameEnabled: false,
     customFilename: "",
     customDirectoryEnabled: false,
@@ -169,6 +157,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         else sendResponse({ type: "pick-directory-result", ok: false, error: "unexpected response" });
       })
       .catch((err) => sendResponse({ type: "pick-directory-result", ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (message?.type === "aias-list-destination-files") {
+    // Powers the Inbox's live {index} preview (App.tsx) — a best-effort
+    // lookup, not the real Organize-time reservation (see organizeFlow.ts),
+    // so a failure here just means the preview can't show a real number yet;
+    // treating "can't check" as "assume nothing exists" is safe because
+    // Organize itself always re-checks the real listing regardless.
+    nativeClient
+      .send({ type: "list-destination-files", naming: message.naming })
+      .then((res) => {
+        if (res.type === "list-destination-files-result") sendResponse(res);
+        else sendResponse({ type: "list-destination-files-result", files: [] });
+      })
+      .catch(() => sendResponse({ type: "list-destination-files-result", files: [] }));
     return true;
   }
 

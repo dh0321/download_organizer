@@ -137,9 +137,10 @@ export async function resolveSafeDestination(
 }
 
 /**
- * Read-only variant used by get-max-index (§F-1): computes the same candidate
- * folder but never creates it. Returns null if the folder doesn't exist yet
- * (meaning: no prior saves there, so max index is trivially 0).
+ * Read-only variant used by list-destination-files (§F-1): computes the same
+ * candidate folder but never creates it. Returns null if the folder doesn't
+ * exist yet (meaning: no prior saves there, so there's trivially nothing to
+ * collide with).
  */
 export async function resolveExistingDestinationOrNull(
   agentConfig: AgentConfig,

@@ -176,8 +176,8 @@ function responseTypeFor(requestType: NativeRequest["type"]): NativeResponse["ty
       return "get-settings-result";
     case "sync-settings":
       return "sync-settings-result";
-    case "get-max-index":
-      return "get-max-index-result";
+    case "list-destination-files":
+      return "list-destination-files-result";
     case "route-file":
       return "route-file-result";
     case "organize-batch":
