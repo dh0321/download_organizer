@@ -63,8 +63,10 @@ const NAMING_TOKENS = [
   { key: "index", label: "Index" },
 ] as const;
 
-const SOURCE_SUGGESTIONS = adapters.map((a) => a.label);
-const CATEGORY_SUGGESTIONS = ["Generated", "Reference", "Character", "Environment", "Prop", "Turntable", "Concept", "Final"];
+const SOURCE_SUGGESTIONS = adapters.map((a) => a.label).sort((a, b) => a.localeCompare(b));
+const CATEGORY_SUGGESTIONS = ["Generated", "Reference", "Character", "Environment", "Prop", "Turntable", "Concept", "Final"].sort(
+  (a, b) => a.localeCompare(b),
+);
 
 function activeNamingTokens(template: string): Set<string> {
   return new Set(NAMING_TOKENS.filter((t) => template.includes(`{${t.key}}`)).map((t) => t.key));
