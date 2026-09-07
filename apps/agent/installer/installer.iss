@@ -23,7 +23,7 @@
 
 [Setup]
 AppName=Download Organizer Agent
-AppVersion=0.1.16
+AppVersion=0.1.17
 AppPublisher=Download Organizer
 DefaultDirName={userappdata}\DownloadOrganizer\bin
 DisableDirPage=yes

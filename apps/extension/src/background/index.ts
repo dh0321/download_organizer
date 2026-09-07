@@ -291,9 +291,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "aias-prune-organized") {
     // Auto-cleanup trigger: fired once by the Inbox page on every fresh
     // load/reload, never from a timer — see JobManager.pruneOrganizedIntoLog.
+    // This is the ONLY thing that actually removes an organized asset from
+    // the active list — see "aias-log-organized" below for the immediate,
+    // non-removing counterpart fired right after Organize.
     void jobManagerPromise.then((jm) => {
       jm.pruneOrganizedIntoLog();
       updateBadge(jm);
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+
+  if (message?.type === "aias-log-organized") {
+    // Fired right after a successful Organize (see organize() in App.tsx) —
+    // updates Recently Organized immediately without waiting for the next
+    // page load, but deliberately does NOT remove the asset from the active
+    // Inbox list (see JobManager.logOrganizedAssets) — the user keeps seeing
+    // it there until they actually restart the tool.
+    void jobManagerPromise.then((jm) => {
+      jm.logOrganizedAssets();
       sendResponse({ ok: true });
     });
     return true;

@@ -221,23 +221,28 @@ export class JobManager {
     this.persist();
   }
 
-  /** Auto-cleanup: called on every fresh Inbox page load. Moves every
-   * currently-"organized" asset into the organize log (recording where it
-   * went) and removes it from the active list, then prunes any log entries
-   * past LOG_RETENTION_MS. Pending/failed/organizing assets are untouched. */
-  pruneOrganizedIntoLog(): void {
+  /** Called right after a successful Organize (§11), NOT on a fresh page
+   * load — logs every not-yet-logged "organized" asset immediately (so
+   * Recently Organized updates without waiting for a reload — confirmed
+   * this is exactly the part of the old combined behavior worth keeping),
+   * but deliberately leaves the asset in the active list, marked
+   * loggedAt, instead of removing it like pruneOrganizedIntoLog does — the
+   * point being that the user keeps seeing organized files in the Inbox
+   * until they actually restart the tool (next fresh page load), not the
+   * instant Organize finishes. */
+  logOrganizedAssets(): void {
     const now = Date.now();
     const beforeLogLength = this.log.length;
     let assetsChanged = false;
-    for (const [id, asset] of this.assets) {
-      if (asset.status !== "organized") continue;
+    for (const asset of this.assets.values()) {
+      if (asset.status !== "organized" || asset.loggedAt) continue;
       this.log.push({
         id: this.deps.generateJobId(),
         originalFilename: asset.originalFilename,
         finalPath: asset.finalPath ?? "",
         loggedAt: now,
       });
-      this.assets.delete(id);
+      asset.loggedAt = now;
       assetsChanged = true;
     }
     this.log = this.log.filter((entry) => now - entry.loggedAt < LOG_RETENTION_MS);
@@ -245,27 +250,36 @@ export class JobManager {
     if (assetsChanged || this.log.length !== beforeLogLength) this.persistLog();
   }
 
+  /** Auto-cleanup: called on every fresh Inbox page load (i.e. the user
+   * actually restarting the tool). Removes every "organized" asset from the
+   * active list — logging it first via the same logOrganizedAssets path if
+   * logOrganizedAssets hasn't already done so (e.g. the service worker was
+   * killed before that message went through) — then prunes any log entries
+   * past LOG_RETENTION_MS. Pending/failed/organizing assets are untouched. */
+  pruneOrganizedIntoLog(): void {
+    this.logOrganizedAssets();
+    const now = Date.now();
+    let assetsChanged = false;
+    for (const [id, asset] of this.assets) {
+      if (asset.status !== "organized") continue;
+      this.assets.delete(id);
+      assetsChanged = true;
+    }
+    if (assetsChanged) this.persist();
+  }
+
   /** "Inbox 비우기": deletes every tracked asset regardless of status
    * (pending/organizing/organized/failed all removed) — unlike removeAsset,
    * this is an explicit bulk wipe the user confirmed. Organized assets are
-   * logged first (same as pruneOrganizedIntoLog) so their destination isn't
-   * lost; pending/failed assets never had a destination, so they're just
-   * discarded with no log entry. */
+   * logged first via logOrganizedAssets (a no-op for ones already logged —
+   * e.g. left visible in the Inbox after a normal Organize, per
+   * logOrganizedAssets's own comment) so no destination is lost and nothing
+   * gets double-logged; pending/failed assets never had a destination, so
+   * they're just discarded with no log entry. */
   emptyInbox(): void {
-    const now = Date.now();
-    for (const asset of this.assets.values()) {
-      if (asset.status !== "organized") continue;
-      this.log.push({
-        id: this.deps.generateJobId(),
-        originalFilename: asset.originalFilename,
-        finalPath: asset.finalPath ?? "",
-        loggedAt: now,
-      });
-    }
+    this.logOrganizedAssets();
     this.assets.clear();
-    this.log = this.log.filter((entry) => now - entry.loggedAt < LOG_RETENTION_MS);
     this.persist();
-    this.persistLog();
   }
 
   /** Live (not-yet-expired) organize log entries, newest first. */

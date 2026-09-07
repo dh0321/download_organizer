@@ -248,6 +248,49 @@ describe("JobManager (Pending Asset store)", () => {
     expect(manager.getOrganizeLog()).toHaveLength(0);
   });
 
+  it("logOrganizedAssets logs organized assets immediately but leaves them visible in the active list", async () => {
+    const { deps } = makeDeps();
+    const manager = await JobManager.create(deps);
+    const organized = register(manager, { browserDownloadId: 1, originalFilename: "hero.png" });
+    manager.markOrganized(organized.id, "/dest/hero.png");
+
+    manager.logOrganizedAssets();
+
+    // Still there — confirmed live requirement: organized files stay
+    // visible in the Inbox until the tool is actually restarted, even
+    // though Recently Organized already reflects them.
+    expect(manager.get(organized.id)?.status).toBe("organized");
+    const log = manager.getOrganizeLog();
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ originalFilename: "hero.png", finalPath: "/dest/hero.png" });
+  });
+
+  it("pruneOrganizedIntoLog does not double-log an asset logOrganizedAssets already logged", async () => {
+    const { deps } = makeDeps();
+    const manager = await JobManager.create(deps);
+    const organized = register(manager, { browserDownloadId: 1, originalFilename: "hero.png" });
+    manager.markOrganized(organized.id, "/dest/hero.png");
+    manager.logOrganizedAssets();
+
+    manager.pruneOrganizedIntoLog();
+
+    expect(manager.get(organized.id)).toBeUndefined(); // now actually removed
+    expect(manager.getOrganizeLog()).toHaveLength(1); // still just the one entry, not two
+  });
+
+  it("emptyInbox does not double-log an asset logOrganizedAssets already logged", async () => {
+    const { deps } = makeDeps();
+    const manager = await JobManager.create(deps);
+    const organized = register(manager, { browserDownloadId: 1, originalFilename: "hero.png" });
+    manager.markOrganized(organized.id, "/dest/hero.png");
+    manager.logOrganizedAssets();
+
+    manager.emptyInbox();
+
+    expect(manager.allPendingAssets()).toHaveLength(0);
+    expect(manager.getOrganizeLog()).toHaveLength(1);
+  });
+
   it("emptyInbox deletes every tracked asset regardless of status, logging organized ones first", async () => {
     const { deps } = makeDeps();
     const manager = await JobManager.create(deps);

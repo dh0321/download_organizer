@@ -158,6 +158,14 @@ export interface PendingAsset {
    * customDirectoryEnabled/customFilenameEnabled flags already on NamingFields —
    * no separate mode enum needed, single source of truth. */
   naming: NamingFields;
+  /** Set once this asset has produced an OrganizeLogEntry (see
+   * JobManager.logOrganizedAssets) — an "organized" asset is logged right
+   * away so Recently Organized updates immediately, but deliberately stays
+   * visible in the active Inbox list until the next fresh page load
+   * (pruneOrganizedIntoLog) instead of disappearing the instant Organize
+   * finishes. This flag is what stops that later prune (or emptyInbox, if
+   * it runs first) from logging the same asset a second time. */
+  loggedAt?: number;
 }
 
 /** A record of where an organized file ended up, kept for a short retention
